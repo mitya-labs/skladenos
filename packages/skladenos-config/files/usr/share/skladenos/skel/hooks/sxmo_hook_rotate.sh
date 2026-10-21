@@ -29,7 +29,9 @@ case "$1" in
 		;;
 esac
 # Обои: портретные для normal/invert, ландшафтные для right/left (STATE п.104); swaybg перезапускаем юнитом sxmo-wallpaper (п.103)
-case "$1" in right|left) WP=/usr/share/skladenos/wallpaper-landscape.png ;; *) WP=/usr/share/skladenos/wallpaper-portrait.png ;; esac
+case "$1" in right|left) O=landscape ;; *) O=portrait ;; esac
+# фирменные обои (пакет skladenos-artwork), если установлен, иначе свободные (skladenos-wallpapers)
+WP=/usr/share/skladenos/wallpaper-branded-$O.png; [ -f "$WP" ] || WP=/usr/share/skladenos/wallpaper-$O.png
 if [ -f "$WP" ]; then
 	systemctl --user stop sxmo-wallpaper 2>/dev/null
 	systemd-run --user --collect --unit=sxmo-wallpaper -E WAYLAND_DISPLAY -E XDG_RUNTIME_DIR swaybg -o DSI-1 -i "$WP" -m fill >/dev/null 2>&1

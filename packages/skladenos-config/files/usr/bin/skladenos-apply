@@ -12,7 +12,10 @@ import argparse, hashlib, json, os, pwd, re, shutil, subprocess, sys
 
 SKEL = "/usr/share/skladenos/skel"
 SXMO = "/usr/share/sxmo"
-WALLPAPER = "/usr/share/skladenos/wallpaper-portrait.png"   # стартовые (портретные); хук поворота переключает на альбомные
+# стартовые (портретные) обои; хук поворота потом переключает на альбомные. Фирменные (skladenos-artwork), если установлены
+WALLPAPER = "/usr/share/skladenos/wallpaper-branded-portrait.png"
+if not os.path.exists(WALLPAPER):
+    WALLPAPER = "/usr/share/skladenos/wallpaper-portrait.png"
 NOTCH_H = os.environ.get("NOTCH_H", "28")
 NOTCH_BG = os.environ.get("NOTCH_BG", "#323232")
 KEYBOARD_ARGS = "-l simple,cyrillic,special,emoji"

@@ -6,7 +6,7 @@ R="$(cd "$(dirname "$0")/.." && pwd)"
 docker build -q -t skladenos-sxmotest "$R/build/sxmotest" >/dev/null
 docker run --rm -v "$R/out/packages":/o skladenos-sxmotest bash -c '
   set -e; useradd -m -s /bin/sh mobian
-  dpkg -i --force-depends /o/skladenos-config_*_all.deb >/dev/null 2>&1
+  dpkg -i --force-depends /o/skladenos-wallpapers_*_all.deb /o/skladenos-config_*_all.deb >/dev/null 2>&1
   H=/home/mobian/.config/sxmo
   skladenos-apply --user mobian --force | grep -q "пропущено (изменено пользователем) 0" || { echo "FAIL: --force"; exit 1; }
   [ "$(skladenos-apply --user mobian | grep -c "записано 0,")" = 1 ] || { echo "FAIL: идемпотентность"; exit 1; }

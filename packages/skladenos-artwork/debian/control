@@ -9,6 +9,6 @@ Rules-Requires-Root: no
 Package: skladenos-artwork
 Architecture: all
 Depends: ${misc:Depends}
-Description: skladenOS: обои и логотип (все права защищены)
- Обои «Skladen v2.1» с логотипом (портретные и альбомные). Распространяются под копирайтом автора,
- не под лицензией остального кода skladenOS; отдельный пакет, чтобы skladenos-config оставался свободным.
+Description: skladenOS: логотип и фирменные обои (все права защищены)
+ Логотип проекта (пёс) и фирменные обои «Skladen v2.1» с ним. Под копирайтом автора, не под лицензией остального
+ кода skladenOS; отдельный пакет, чтобы остальные пакеты оставались свободными. Свободные обои без логотипа — skladenos-wallpapers.

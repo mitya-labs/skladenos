@@ -1,0 +1,14 @@
+Source: skladenos-wallpapers
+Section: x11
+Priority: optional
+Maintainer: Dmitrii Trifonov <53140442+DmitriiTrifonov@users.noreply.github.com>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+
+Package: skladenos-wallpapers
+Architecture: all
+Depends: ${misc:Depends}
+Description: skladenOS: свободные обои (CC BY-SA 4.0)
+ Обои «Skladen v2.1» без логотипа (портретные и альбомные) под лицензией CC BY-SA 4.0.
+ Фирменные обои с логотипом и сам логотип — в пакете skladenos-artwork (все права защищены).

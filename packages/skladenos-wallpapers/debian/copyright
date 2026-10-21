@@ -1,0 +1,13 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: skladenOS
+Source: https://github.com/mitya-labs/skladenos
+
+Files: *
+Copyright: 2026 Dmitrii Trifonov
+License: CC-BY-SA-4.0
+ Creative Commons Attribution-ShareAlike 4.0 International. The full text is in
+ /usr/share/doc/skladenos-wallpapers/CC-BY-SA-4.0.txt and at
+ https://creativecommons.org/licenses/by-sa/4.0/legalcode
+ .
+ The text in the images is rendered with JetBrains Mono (SIL Open Font License 1.1).
+ The logo of the project is not part of these wallpapers (see skladenos-artwork).

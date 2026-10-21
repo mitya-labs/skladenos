@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# SXMO: окна не выходят за «безопасную зону» (рабочая область sway без бара/выреза/углов).
+#  - fullscreen запрещён (иначе окно закрывает вырез): сразу снимается;
+#  - плавающие окна зажимаются в рабочую область активного workspace (и по размеру, и по положению).
+# Тайлы и так лежат в рабочей области (gaps 28 от sxmo-setup: сверху/слева/справа/снизу по ориентации).
+# Запуск: sxmo-safe-area daemon (из ~/.config/sxmo/sway через systemd-run, см. skladenos-config).
+set -euo pipefail
+case "${1:-}" in
+daemon)
+  fix() {  # $1 = id окна
+    local id=$1 info ws fs fl x y w h wx wy ww wh nw nh nx ny
+    info=$(swaymsg -t get_tree | jq -c --argjson id "$id" '.. | select(.id?==$id and .pid?) | {fs:.fullscreen_mode,fl:.type,r:.rect,f:.floating}') || return 0
+    [ -n "$info" ] || return 0
+    fs=$(jq -r .fs <<<"$info")
+    if [ "$fs" != 0 ]; then swaymsg "[con_id=$id] fullscreen disable" >/dev/null; return 0; fi
+    [ "$(jq -r .fl <<<"$info")" = floating_con ] || return 0
+    read -r wx wy ww wh < <(swaymsg -t get_workspaces | jq -r '.[]|select(.focused)|.rect|"\(.x) \(.y) \(.width) \(.height)"')
+    read -r x y w h < <(jq -r '.r|"\(.x) \(.y) \(.width) \(.height)"' <<<"$info")
+    nw=$(( w > ww ? ww : w )); nh=$(( h > wh ? wh : h ))
+    nx=$x; ny=$y
+    [ "$nx" -lt "$wx" ] && nx=$wx; [ "$ny" -lt "$wy" ] && ny=$wy
+    [ $((nx+nw)) -gt $((wx+ww)) ] && nx=$((wx+ww-nw)); [ $((ny+nh)) -gt $((wy+wh)) ] && ny=$((wy+wh-nh))
+    if [ "$nw" != "$w" ] || [ "$nh" != "$h" ]; then swaymsg "[con_id=$id] resize set $nw px $nh px" >/dev/null; fi
+    if [ "$nx" != "$x" ] || [ "$ny" != "$y" ]; then swaymsg "[con_id=$id] move absolute position $nx px $ny px" >/dev/null; fi
+  }
+  swaymsg -t subscribe -m '["window"]' | jq --unbuffered -r 'select(.change=="new" or .change=="fullscreen_mode" or .change=="floating" or .change=="move") | .container.id' |
+  while read -r id; do fix "$id" || true; done ;;
+*) echo "usage: $0 daemon" >&2; exit 1 ;;
+esac

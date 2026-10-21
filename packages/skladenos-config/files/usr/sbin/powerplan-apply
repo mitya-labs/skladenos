@@ -1,0 +1,56 @@
+#!/bin/sh
+# Root-часть powerplan (адаптация под Poco F1 / SDM845: policy0 = ядра 0-3 малые, policy4 = ядра 4-7 большие, GPU devfreq 5000000.gpu). STATE п.107.
+# Использование: powerplan-apply <имя-плана>
+PLANDIR=/usr/share/skladenos/powerplan/plans
+CPU=/sys/devices/system/cpu
+GPU=/sys/class/devfreq/5000000.gpu
+rc=0
+
+name=$1
+case "$name" in
+'' | *[!a-z0-9_-]*) echo "powerplan-apply: неверное имя плана" >&2; exit 2 ;;
+esac
+[ -f "$PLANDIR/$name.conf" ] || { echo "powerplan-apply: нет плана '$name'" >&2; exit 2; }
+[ "$(id -u)" = 0 ] || { echo "powerplan-apply: нужен root" >&2; exit 1; }
+
+. "$PLANDIR/$name.conf"
+
+put() { # файл значение
+	[ -e "$1" ] || return 0
+	echo "$2" >"$1" 2>/dev/null || { echo "powerplan-apply: не удалось записать $2 в $1" >&2; rc=1; }
+}
+
+check_freq() { # policy частота
+	grep -qw "$2" "$1/scaling_available_frequencies" 2>/dev/null || {
+		echo "powerplan-apply: частота $2 недоступна для $1" >&2; exit 2; }
+}
+
+policy_of() { echo "$CPU/cpufreq/policy$1"; }
+
+# 1. Сброс в крайние значения: все ядра онлайн, полный диапазон частот
+for c in "$CPU"/cpu[1-9]*; do put "$c/online" 1; done
+# policy отключённых ядер нечитаема, ждём её появления после включения
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+	[ -r "$(policy_of 4)/scaling_available_frequencies" ] && break
+	sleep 0.1
+done
+check_freq "$(policy_of 0)" "$LITTLE_MAX"
+check_freq "$(policy_of 4)" "$BIG_MAX"
+for p in "$CPU"/cpufreq/policy*; do
+	put "$p/scaling_max_freq" "$(cat "$p/cpuinfo_max_freq")"
+	put "$p/scaling_min_freq" "$(cat "$p/cpuinfo_min_freq")"
+done
+put "$GPU/max_freq" "$(tr ' ' '\n' <"$GPU/available_frequencies" | grep . | sort -n | tail -n1)"
+put "$GPU/min_freq" "$(tr ' ' '\n' <"$GPU/available_frequencies" | grep . | sort -n | head -n1)"
+
+# 2. Применение плана
+for p in 0 4; do
+	put "$(policy_of $p)/scaling_governor" "$GOV"
+done
+put "$(policy_of 0)/scaling_max_freq" "$LITTLE_MAX"
+put "$(policy_of 4)/scaling_max_freq" "$BIG_MAX"
+put "$GPU/max_freq" "$GPU_MAX"
+put "$GPU/min_freq" "$GPU_MIN"
+for n in $OFFLINE_CPUS; do put "$CPU/cpu$n/online" 0; done
+
+exit $rc

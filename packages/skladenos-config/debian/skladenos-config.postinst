@@ -1,0 +1,15 @@
+#!/bin/sh
+set -e
+case "$1" in
+configure)
+	# SXMO — сессия по умолчанию (вместо greetd/Phosh); в chroot образа systemctl enable работает без запущенного systemd
+	systemctl disable greetd phosh.service >/dev/null 2>&1 || true
+	systemctl enable sxmo.service >/dev/null 2>&1 || true
+	# звук: без alsa-restore (его маска идёт файлом в пакете); старое состояние удаляем
+	rm -f /var/lib/alsa/asound.state
+	# suspend по rtcwake: группа clock для /dev/rtc0
+	if getent passwd mobian >/dev/null 2>&1; then usermod -aG clock mobian || true; fi
+	;;
+esac
+#DEBHELPER#
+exit 0

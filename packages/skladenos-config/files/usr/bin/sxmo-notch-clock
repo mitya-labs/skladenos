@@ -1,0 +1,25 @@
+#!/bin/sh
+# бар notch (swaybar, протокол i3bar JSON): слева индикатор блокировки (кружок), справа часы.
+# Кружок белый — SXMO разблокирован, красный — lock/screenoff (тач заблокирован); состояние: $XDG_RUNTIME_DIR/sxmo.state.
+# JSON-протокол нужен, чтобы блок с кружком стоял у левого края: обычный текстовый статус swaybar всегда прижат вправо.
+# CIRCLE_MIN_WIDTH — ширина блока с кружком (логические px, экран ×3): ширина бара (360) минус ширина часов с отступом (~75).
+# NBSP_PAD справа и LEFT_PAD слева — неразрывные пробелы: отодвигают текст от скруглённых углов (status_edge_padding в этой swaybar не работает).
+MINW="${CIRCLE_MIN_WIDTH:-285}"
+PAD=""; i=0
+while [ "$i" -lt "${NBSP_PAD:-3}" ]; do PAD="$PAD$(printf '\302\240')"; i=$((i + 1)); done
+LPAD=""; i=0
+while [ "$i" -lt "${LEFT_PAD:-2}" ]; do LPAD="$LPAD$(printf '\302\240')"; i=$((i + 1)); done
+STATE_FILE="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/sxmo.state"
+printf '{"version":1}\n[\n'
+last=""
+while :; do
+	state=$(cat "$STATE_FILE" 2>/dev/null)
+	if [ "$state" = "unlock" ] || [ -z "$state" ]; then color="#ffffff"; else color="#ff3b30"; fi
+	t=$(date +%H:%M)
+	key="$color $t"
+	if [ "$key" != "$last" ]; then
+		printf '[{"full_text":"%s<span size=\\"large\\">●</span>","markup":"pango","color":"%s","min_width":%s,"align":"left","separator":false,"separator_block_width":0},{"full_text":"%s%s","color":"#ffffff","separator":false,"separator_block_width":0}],\n' "$LPAD" "$color" "$MINW" "$t" "$PAD"
+		last="$key"
+	fi
+	sleep 1
+done

@@ -1,0 +1,1 @@
+sxmo_deviceprofile_xiaomi,beryllium-ebbg.sh

@@ -1,0 +1,12 @@
+#!/usr/bin/make -f
+%:
+	dh $@
+
+override_dh_auto_install:
+	cp -a files/. debian/skladenos-config/
+
+# несколько юнитов в одном пакете: по одному вызову на каждое имя (debian/skladenos-config.<имя>.service)
+override_dh_installsystemd:
+	dh_installsystemd --name=adsp-start
+	dh_installsystemd --name=slpi-start
+	dh_installsystemd --name=tas2559-config

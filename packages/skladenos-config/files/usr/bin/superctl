@@ -1,0 +1,7 @@
+#!/bin/sh
+# skladenos shim: superctl (superd) -> systemd --user
+cmd="$1"; shift
+case "$cmd" in
+	start|stop|restart|status|enable|disable|is-active) exec systemctl --user "$cmd" "$@" ;;
+	*) exit 0 ;;
+esac

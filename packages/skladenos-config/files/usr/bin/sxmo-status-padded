@@ -1,0 +1,8 @@
+#!/bin/sh
+# основной бар: sxmo_status.sh watch + неразрывные пробелы справа (иначе крайняя иконка уходит под скругление дисплея)
+PAD=""
+i=0
+while [ "$i" -lt "${NBSP_PAD:-2}" ]; do PAD="$PAD$(printf '\302\240')"; i=$((i + 1)); done
+sxmo_status.sh watch | while IFS= read -r line; do
+	printf '%s%s\n' "$line" "$PAD"
+done

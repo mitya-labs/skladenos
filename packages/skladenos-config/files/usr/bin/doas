@@ -1,0 +1,6 @@
+#!/bin/sh
+# skladenos shim: doas (в Debian нет) -> systemctl для reboot/poweroff, остальное -> sudo
+case "$1" in
+	reboot|poweroff) exec systemctl "$1" ;;
+	*) exec sudo "$@" ;;
+esac

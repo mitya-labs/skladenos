@@ -1,0 +1,13 @@
+[Unit]
+Description=Start SLPI (sensor DSP) remoteproc
+ConditionKernelVersion=>=7.0
+After=local-fs.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh -c 'for r in /sys/class/remoteproc/*; do if [ "$(cat $r/name)" = slpi ] && [ "$(cat $r/state)" != running ]; then echo start > $r/state; fi; done; true'
+ExecStop=/bin/sh -c 'for r in /sys/class/remoteproc/*; do [ "$(cat $r/name)" = slpi ] && echo stop > $r/state; done; true'
+
+[Install]
+WantedBy=multi-user.target

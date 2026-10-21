@@ -1,0 +1,18 @@
+Source: skladenos-config
+Section: misc
+Priority: optional
+Maintainer: Dmitrii Trifonov <53140442+DmitriiTrifonov@users.noreply.github.com>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+
+Package: skladenos-config
+Architecture: all
+Depends: ${misc:Depends}, sxmo-utils, jq, python3, sudo, systemd, swaybg, network-manager
+Recommends: libssc-bin, hexagonrpcd, openssh-server
+Conflicts: doas, superd
+Provides: doas
+Description: skladenOS: системные настройки Poco F1 (Xiaomi beryllium) для Mobian + SXMO
+ Профиль устройства SXMO, обходы для SDM845 (ADSP/SLPI, звук, USB-гаджет, Wi-Fi powersave,
+ вырез экрана), планы питания, SXMO как сессия по умолчанию, шимы superctl/doas.
+ Пользовательские настройки SXMO (sway, хуки, меню) ставит skladenos-apply (слой B).

@@ -1,0 +1,12 @@
+[Unit]
+Description=Start ADSP remoteproc (audio on SDM845)
+After=local-fs.target
+Before=multi-user.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/adsp-start
+
+[Install]
+WantedBy=multi-user.target

@@ -19,8 +19,10 @@ echo "[2/4] патчи skladenOS (taygoth v1 + beryllium + PD; 0006 правит
 for p in $(ls /patches/*.diff | grep -v 0006) /patches/pd/*.diff; do
   echo "  apply $(basename "$p")"; patch -p1 -s --no-backup-if-mismatch -F3 < "$p" || { echo "FAIL $p"; exit 1; }
 done
-echo "[3/4] конфиг: добавляем TYPEC_QCOM_PMI8998=m (TCPM и QCOM_PMIC уже =m в debian.arm64.config)"
+echo "[3/4] конфиг: TYPEC_QCOM_PMI8998=m (TCPM и QCOM_PMIC уже =m), DAMON_STAT по умолчанию выкл."
 grep -q '^CONFIG_TYPEC_QCOM_PMI8998' debian/config/sdm845.config || echo 'CONFIG_TYPEC_QCOM_PMI8998=m' >> debian/config/sdm845.config
+# DAMON_STAT по умолчанию включён в Mobian 7.2: kdamond ест 10-40% ядра (STATE п.138) — выключаем в конфиге вместо tmpfiles
+grep -q 'DAMON_STAT_ENABLED_DEFAULT' debian/config/sdm845.config || echo '# CONFIG_DAMON_STAT_ENABLED_DEFAULT is not set' >> debian/config/sdm845.config
 if [ "$MODE" = check ]; then echo "[4/4] check: патчи и конфиг применены, сборка пропущена"; exit 0; fi
 echo "[4/4] dpkg-buildpackage -b (долго: полная сборка ядра и модулей)"
 VER="$(sed -n '1s/.*(\(.*\)).*/\1/p' debian/changelog.in 2>/dev/null || true)"

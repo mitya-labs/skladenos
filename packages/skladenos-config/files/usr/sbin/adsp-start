@@ -1,0 +1,7 @@
+#!/bin/sh
+# Запустить ADSP (remoteproc-adsp), если он offline: без него нет звуковой карты.
+for r in /sys/class/remoteproc/remoteproc*; do
+  [ "$(cat "$r/name" 2>/dev/null)" = "remoteproc-adsp" ] || continue
+  [ "$(cat "$r/state")" = "offline" ] && echo start > "$r/state"
+done
+exit 0

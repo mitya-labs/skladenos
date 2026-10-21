@@ -1,0 +1,12 @@
+#!/bin/sh
+# Запретить/разрешить сон SXMO на время работы по SSH (аналог Caffeine в Phosh).
+# Запускать НА ТЕЛЕФОНЕ от mobian:  phone-nosleep on | off | status
+# Использует мьютекс SXMO can_suspend; после ребута сон снова разрешён.
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" PATH="$HOME/.config/sxmo/hooks:$PATH"
+# Мьютекс считает блокировки: каждый «on» добавлял запись, а «off» снимал одну → снимаем все (идемпотентно).
+release() { n=0; while sxmo_mutex.sh can_suspend list 2>/dev/null | grep -qx "ssh-work" && [ "$n" -lt 100 ]; do sxmo_mutex.sh can_suspend free "ssh-work"; n=$((n+1)); done; }
+case "${1:-status}" in
+  on)  release; sxmo_mutex.sh can_suspend lock "ssh-work"; echo "сон запрещён" ;;
+  off) release; echo "сон разрешён" ;;
+  *)   sxmo_mutex.sh can_suspend running 2>/dev/null; sxmo_mutex.sh can_suspend list 2>/dev/null; cat /sys/power/suspend_stats/success ;;
+esac

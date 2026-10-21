@@ -1,0 +1,16 @@
+#!/bin/sh
+# Смена роли USB-порта на лету (нужен boot с dr_mode = "otg", STATE п.81–82).
+# Запускать НА ТЕЛЕФОНЕ от root:  sudo phone-usb host | device | status
+#   host   — отвязать гаджет (g1) от UDC, включить xHCI (хаб/флешка/клавиатура)
+#   device — снять xHCI, привязать g1 к UDC (usb0 = 10.66.0.1, SSH с Мака)
+M=/sys/kernel/debug/usb/a600000.usb/mode
+G=/sys/kernel/config/usb_gadget/g1/UDC
+UDC=a600000.usb
+case "${1:-status}" in
+  host)   echo "" > "$G" 2>/dev/null; echo host > "$M"; sleep 2 ;;
+  device) echo device > "$M"; sleep 2; [ -z "$(cat $G)" ] && echo "$UDC" > "$G"; sleep 2 ;;
+  status) ;;
+  *) echo "usage: phone-usb host|device|status" >&2; exit 2 ;;
+esac
+echo "mode=$(cat $M) udc=$(cat /sys/class/udc/$UDC/state 2>/dev/null) gadget=$(cat $G)"
+ip -br a | grep -E "^usb0" ; lsusb -t | grep -E "^/:|Port" | head -8

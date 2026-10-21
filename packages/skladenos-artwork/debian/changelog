@@ -1,0 +1,5 @@
+skladenos-artwork (0.1.0) unstable; urgency=medium
+
+  * Обои вынесены из skladenos-config в отдельный пакет (права защищены).
+
+ -- Dmitrii Trifonov <53140442+DmitriiTrifonov@users.noreply.github.com>  Wed, 21 Oct 2026 18:30:00 +0300

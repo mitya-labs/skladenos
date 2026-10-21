@@ -1,0 +1,10 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: skladenOS
+Source: https://github.com/mitya-labs/skladenos
+
+Files: *
+Copyright: 2026 Dmitrii Trifonov
+License: all-rights-reserved
+ All rights reserved. The wallpapers and the logo may not be copied, modified or
+ redistributed without the written permission of the author. The names "Skladen" and
+ "skladenOS" and the logo are distinctive marks of the project; no licence to them is granted.

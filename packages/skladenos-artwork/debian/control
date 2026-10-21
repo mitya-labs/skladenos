@@ -1,0 +1,14 @@
+Source: skladenos-artwork
+Section: non-free/misc
+Priority: optional
+Maintainer: Dmitrii Trifonov <53140442+DmitriiTrifonov@users.noreply.github.com>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+
+Package: skladenos-artwork
+Architecture: all
+Depends: ${misc:Depends}
+Description: skladenOS: обои и логотип (все права защищены)
+ Обои «Skladen v2.1» с логотипом (портретные и альбомные). Распространяются под копирайтом автора,
+ не под лицензией остального кода skladenOS; отдельный пакет, чтобы skladenos-config оставался свободным.

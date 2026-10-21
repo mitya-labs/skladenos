@@ -3,7 +3,7 @@
 | Что | Где | Лицензия |
 |---|---|---|
 | Логотип skladenOS (знак «гармошка», горизонтальный и вертикальный варианты, иконки) | `packages/skladenos-artwork/files/usr/share/skladenos/logo/`, `…/icons/` (генераторы — `tools/`) | **все права защищены**, © 2026 Dmitrii Trifonov |
-| Логотип-пёс (знак продукта Skladen) и фирменные обои с ним | `packages/skladenos-artwork/` | **все права защищены**, © 2026 Dmitrii Trifonov |
+| Логотип Mitya Labs (пёс; здесь жёлтый вариант) и фирменные обои «Skladen v2.1» с ним | `packages/skladenos-artwork/` | **все права защищены**, © 2026 Dmitrii Trifonov |
 | Свободные обои «Skladen v2.1» (без логотипа) | `packages/skladenos-wallpapers/` | **CC BY-SA 4.0**, © 2026 Dmitrii Trifonov |
 
 Логотип не входит в лицензию кода и свободных обоев: копировать, изменять и распространять его без письменного разрешения автора нельзя.

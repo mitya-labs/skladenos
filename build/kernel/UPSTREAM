@@ -1,0 +1,4 @@
+# Исходники ядра Mobian для SDM845 (Poco F1 и др.): репозиторий и фиксированный тег.
+# Обновление ядра = смена тега здесь + `build/kernel/build.sh check` (проверит, что патчи ложатся).
+REPO=https://salsa.debian.org/Mobian-team/devices/kernels/qcom-linux.git
+TAG=mobian/sdm845-7.2.11-1

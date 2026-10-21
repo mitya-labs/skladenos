@@ -10,3 +10,6 @@ images/
 logs/
 
 .DS_Store
+
+# Результаты сборки (.deb, образы)
+out/

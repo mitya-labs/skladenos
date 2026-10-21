@@ -1,0 +1,5 @@
+#!/bin/sh
+# title="SunVox"
+# SunVox (SDL2) как обычное тайловое окно sway через Wayland: уважает поля под челку и статус-бар (STATE п.120)
+cd "$HOME/Downloads/sunvox/sunvox/linux_arm64" || exit 1
+SDL_VIDEODRIVER=wayland exec ./sunvox

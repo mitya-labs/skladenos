@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Делает boot-образ: берёт boot-7.2-otg.img, заменяет приклеенный к ядру dtb на собранный
+# (images/kernels/pmi8998/sdm845-xiaomi-beryllium-<ebbg|tianma>.dtb). Остальное (gz-ядро, initramfs, cmdline) то же.
+# Использование: scripts/pmi8998-bootimg [ebbg|tianma] [база.img] -> images/kernels/boot-7.2-typec.img
+# Вариант PD: DTBDIR=pmi8998/pd OUT=boot-7.2-pd.img scripts/pmi8998-bootimg
+set -euo pipefail
+V="${1:-ebbg}"; R="$(cd "$(dirname "$0")/.." && pwd)"; BASE="${2:-boot-7.2-otg.img}"; DTBDIR="${DTBDIR:-pmi8998}"; OUT="${OUT:-boot-7.2-typec.img}"
+docker run --rm -v "$R/images/kernels":/k kbuild-sdm845 bash -c '
+set -e; apt-get update -qq >/dev/null; apt-get install -y -qq mkbootimg >/dev/null 2>&1
+mkdir /t; cd /t; unpack_bootimg --boot_img /k/'"$BASE"' --out /t >/dev/null
+CMD=$(unpack_bootimg --boot_img /k/'"$BASE"' --out /t | sed -n "s/^command line args: //p")
+python3 - /t/kernel /k/'"$DTBDIR"'/sdm845-xiaomi-beryllium-'"$V"'.dtb /t/kernel.new <<P
+import sys,zlib
+d=open(sys.argv[1],"rb").read(); o=zlib.decompressobj(31); o.decompress(d)
+gz=d[:len(d)-len(o.unused_data)]; assert o.unused_data[:4]==bytes.fromhex("d00dfeed")
+open(sys.argv[3],"wb").write(gz+open(sys.argv[2],"rb").read())
+open("/t/kernel.orig","wb").write(d)
+P
+mk(){ mkbootimg --kernel "$1" --ramdisk /t/ramdisk --base 0x10000000 --kernel_offset 0x8000 --ramdisk_offset 0x1000000 --tags_offset 0x100 --pagesize 4096 --header_version 0 --cmdline "$CMD" -o "$2"; }
+mk /t/kernel.orig /t/check.img
+cmp /t/check.img /k/'"$BASE"' && echo "репак оригинала идентичен"
+mk /t/kernel.new /k/'"$OUT"'
+ls -l /k/'"$OUT"'; sha256sum /k/'"$OUT"''

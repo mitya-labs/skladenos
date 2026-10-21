@@ -1,0 +1,67 @@
+#!/bin/sh
+# На телефоне от root: возвращает Type-C/VBUS PMI8998 после обновления пакета ядра (apt перезаписывает dtb, регулятор и boot).
+#   pmi8998-reapply status | apply [typec|pd] | revert
+# Режим typec — модуль taygoth (Type-C без PD); pd — TCPM + наш qcom_pmic_tcpm.ko (PD, DR_Swap, STATE п.129–132).
+# Без аргумента apply берёт режим из $A/MODE (по умолчанию typec).
+# Артефакты (собраны на Маке scripts/pmi8998-build [PD=1], ставятся scripts/pmi8998-install): /usr/local/share/pmi8998/{,pd/}
+set -e
+V=7.2-sdm845; PKG=linux-image-7.2-sdm845
+A=/usr/local/share/pmi8998; ST=/var/lib/pmi8998-stock
+K=/lib/modules/$V/kernel/drivers/regulator/qcom_usb_vbus-regulator.ko.xz
+U=/lib/modules/$V/updates/qcom_pmi8998_typec.ko
+UP=/lib/modules/$V/updates/qcom_pmic_tcpm.ko
+MP=/etc/modprobe.d/pmi8998-pd.conf
+MODE=$(cat $A/MODE 2>/dev/null || echo typec)
+[ "$1" = apply ] && [ -n "$2" ] && MODE=$2
+case $MODE in typec) AD=$A ;; pd) AD=$A/pd ;; *) echo "режим: typec или pd" >&2; exit 2 ;; esac
+VAR=$(sed -n 's/.*mobile.variant=\([^ ]*\).*/\1/p' /proc/cmdline); VAR=${VAR:-ebbg}
+DN=sdm845-xiaomi-beryllium-$VAR.dtb; D=/usr/lib/linux-image-$V/qcom/$DN
+BUILT=$(cat $A/BUILT_FOR 2>/dev/null || echo none)
+PKGV=$(dpkg-query -W -f='${Version}' $PKG 2>/dev/null || echo none)
+
+reg_ok() { [ "$(xz -dc $K 2>/dev/null | sha256sum | cut -d' ' -f1)" = "$(sha256sum < $A/qcom_usb_vbus-regulator.ko | cut -d' ' -f1)" ]; }
+state() {
+  [ "$PKGV" = "$BUILT" ] || { echo "REBUILD пакет ядра $PKGV, артефакты собраны для $BUILT: пересоберите на Маке (scripts/pmi8998-build, потом pmi8998-install)"; return 3; }
+  bad=""
+  cmp -s $AD/$DN $D || bad="$bad dtb"
+  reg_ok || bad="$bad регулятор"
+  if [ $MODE = pd ]; then
+    cmp -s $AD/qcom_pmic_tcpm.ko $UP 2>/dev/null || bad="$bad tcpm"
+    [ -f $MP ] || bad="$bad softdep"
+  else
+    cmp -s $A/qcom_pmi8998_typec.ko $U 2>/dev/null || bad="$bad typec"
+  fi
+  [ /boot/initrd.img-$V -nt $K ] || bad="$bad initrd"
+  [ -z "$bad" ] && { echo "OK всё на месте (режим $MODE, пакет $PKGV)"; return 0; }
+  echo "NEED режим $MODE, нужно применить:$bad"; return 1
+}
+rebuild() { update-initramfs -u -k $V; /etc/kernel/postinst.d/zz-qcom-bootimg --force $V; sync; }
+case "${1:-status}" in
+  status) state || exit $? ;;
+  apply)
+    [ "$PKGV" = "$BUILT" ] || { state; exit 3; }
+    mkdir -p $ST /lib/modules/$V/updates
+    reg_ok || cp -p $K $ST/qcom_usb_vbus-regulator.ko.xz
+    [ -f $ST/$DN.stock ] || cmp -s $A/$DN $D || cmp -s $A/pd/$DN $D || cp -p $D $ST/$DN.stock
+    if [ $MODE = pd ]; then
+      # Модуль без depends (собран без vmlinux) — зависимости через softdep
+      rm -f $U /etc/modules-load.d/pmi8998-typec.conf
+      install -m644 $AD/qcom_pmic_tcpm.ko $UP
+      echo "softdep qcom_pmic_tcpm pre: tcpm aux-hpd-bridge" > $MP
+    else
+      rm -f $UP $MP
+      install -m644 $A/qcom_pmi8998_typec.ko $U
+      echo qcom_pmi8998_typec > /etc/modules-load.d/pmi8998-typec.conf
+    fi
+    echo $MODE > $A/MODE
+    xz --check=crc32 --lzma2=dict=1MiB -c $A/qcom_usb_vbus-regulator.ko > /tmp/vbus.ko.xz; install -m644 /tmp/vbus.ko.xz $K
+    install -m644 $AD/$DN $D
+    depmod $V; rebuild
+    echo "DONE применено (режим $MODE), перезагрузите телефон" ;;
+  revert)
+    [ -f $ST/qcom_usb_vbus-regulator.ko.xz ] && cp -p $ST/qcom_usb_vbus-regulator.ko.xz $K
+    if [ -f $ST/$DN.stock ]; then cp -p $ST/$DN.stock $D; elif [ -f $D.stock ]; then cp -p $D.stock $D; fi
+    rm -f $U $UP $MP /etc/modules-load.d/pmi8998-typec.conf; depmod $V; rebuild
+    echo "DONE откат выполнен, перезагрузите телефон" ;;
+  *) echo "usage: pmi8998-reapply status|apply [typec|pd]|revert" >&2; exit 2 ;;
+esac

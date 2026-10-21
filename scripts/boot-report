@@ -1,0 +1,29 @@
+#!/bin/sh
+# Пишет одну строку статистики загрузки в /var/log/boot-stats.csv
+# Запускается systemd-юнитом boot-report.service через ~60 с после старта.
+
+OUT=/var/log/boot-stats.csv
+
+boot_id=$(cat /proc/sys/kernel/random/boot_id)
+ts=$(date '+%F %T')
+uname_r=$(uname -r)
+
+cmdline=$(tr '\n' ' ' < /proc/cmdline)
+
+# Панель: ищем коннектор DSI-1
+dsi_status=""
+dsi_enabled=""
+for c in /sys/class/drm/card*-DSI-*; do
+	[ -d "$c" ] || continue
+	dsi_status=$(cat "$c/status" 2>/dev/null)
+	dsi_enabled=$(cat "$c/enabled" 2>/dev/null)
+done
+
+# Следы дисплейной инициализации в dmesg
+drm_lines=$(dmesg 2>/dev/null | grep -iE 'dsi|panel|mdss|dpu' | tail -5 | tr '\n' '|' | sed 's/|$//')
+
+# Сеть и модем
+wlan=$(ip link show wlan0 2>/dev/null | grep -c UP)
+modem=$(ls /sys/class/remoteproc/ 2>/dev/null | grep -c mpss)
+
+echo "$ts,$boot_id,$uname_r,\"$cmdline\",$dsi_status,$dsi_enabled,$wlan,$modem,\"$drm_lines\"" >> "$OUT"

@@ -1,0 +1,42 @@
+#!/bin/sh
+# Пользовательская часть powerplan.
+# powerplan list | get | set <план>
+STATE="${XDG_STATE_HOME:-$HOME/.local/state}/powerplan"
+PLANDIR=/usr/local/share/powerplan/plans
+APPLY=/usr/local/bin/powerplan-apply
+
+notify() {
+	if command -v sxmo_notify_user.sh >/dev/null 2>&1; then sxmo_notify_user.sh "$1"
+	elif command -v notify-send >/dev/null 2>&1; then notify-send "Powerplan" "$1"
+	fi
+	echo "$1"
+}
+
+title() { ( . "$PLANDIR/$1.conf" && echo "$TITLE" ); }
+
+case "$1" in
+list)
+	for f in "$PLANDIR"/*.conf; do n=$(basename "$f" .conf); echo "$n	$(title "$n")"; done
+	;;
+get)
+	cat "$STATE/current" 2>/dev/null || echo unknown
+	;;
+set)
+	name=$2
+	case "$name" in '' | *[!a-z0-9_-]*) echo "неверное имя плана" >&2; exit 2 ;; esac
+	[ -f "$PLANDIR/$name.conf" ] || { echo "нет плана '$name'" >&2; exit 2; }
+	# Пароль sudo не нужен (sudoers sxmo-powerplan); если правила нет — спросим в терминале Sxmo
+	if [ ! -t 0 ] && ! sudo -n -l "$APPLY" >/dev/null 2>&1; then exec sxmo_terminal.sh "$0" set "$name"; fi
+	if sudo "$APPLY" "$name"; then
+		mkdir -p "$STATE" && echo "$name" >"$STATE/current"
+		notify "Питание: $(title "$name")"
+	else
+		notify "Не удалось применить план '$name'"
+		printf 'Enter...'; read -r _
+		exit 1
+	fi
+	;;
+*)
+	echo "Использование: powerplan list | get | set <план>" >&2; exit 2
+	;;
+esac

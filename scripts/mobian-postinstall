@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+# Пост-настройка Mobian на Poco F1. Запускать НА ТЕЛЕФОНЕ от root:
+#   scp scripts/mobian-postinstall mobian@mobian.local:/tmp/
+#   ssh -t mobian@mobian.local sudo bash /tmp/mobian-postinstall
+# (sshd на свежем образе выключен: сначала на телефоне в терминале
+#  `sudo apt install -y openssh-server` или `sudo systemctl enable --now ssh`.)
+set -euo pipefail
+[ "$(id -u)" -eq 0 ] || { echo "нужен root (sudo)" >&2; exit 1; }
+
+echo "[~2 сек] маска rmtfs-dir (иначе два rmtfs конфликтуют → модем падает → нет Wi-Fi)"
+ln -sf /dev/null /etc/systemd/system/rmtfs-dir.service
+systemctl daemon-reload
+
+echo "[~2 сек] ssh"
+systemctl enable --now ssh 2>/dev/null || true
+
+echo "[~5 сек] apt-mark hold (testing ломается апгрейдами)"
+HOLD="linux-image-6.12-sdm845 rmtfs tqftpserv qrtr-tools alsa-ucm-conf droid-juicer firmware-qcom-soc firmware-qcom-dsp qbootctl"
+for p in $HOLD; do
+  dpkg -s "$p" >/dev/null 2>&1 && apt-mark hold "$p"
+done
+
+echo "[~2 сек] звук (обход из вики Debian для Poco F1)"
+systemctl mask alsa-restore 2>/dev/null || true
+rm -f /var/lib/alsa/asound.state
+
+echo "[~2 сек] запуск ADSP при загрузке (звук): при старте ядра прошивка adsp.mbn не грузится (-2, rootfs ещё не смонтирован), remoteproc остаётся offline → нет звуковой карты"
+cat > /usr/local/sbin/adsp-start <<'EOS'
+#!/bin/sh
+# Запустить ADSP (remoteproc-adsp), если он offline: без него нет звуковой карты.
+for r in /sys/class/remoteproc/remoteproc*; do
+  [ "$(cat "$r/name" 2>/dev/null)" = "remoteproc-adsp" ] || continue
+  [ "$(cat "$r/state")" = "offline" ] && echo start > "$r/state"
+done
+exit 0
+EOS
+chmod +x /usr/local/sbin/adsp-start
+cat > /etc/systemd/system/adsp-start.service <<'EOS'
+[Unit]
+Description=Start ADSP remoteproc (audio on SDM845)
+After=local-fs.target
+Before=multi-user.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/adsp-start
+
+[Install]
+WantedBy=multi-user.target
+EOS
+systemctl daemon-reload
+systemctl enable adsp-start.service
+
+echo "[~2 сек] таймаут остановки 15 с вместо 90 (gnome-session-init-worker в session-c2.scope игнорирует SIGTERM, перезагрузка висит 90 с)"
+mkdir -p /etc/systemd/system.conf.d
+printf '[Manager]\nDefaultTimeoutStopSec=15s\n' > /etc/systemd/system.conf.d/10-stop-timeout.conf
+
+echo "[~2 сек] Wi-Fi powersave выключен (иначе телефон «засыпает» по SSH)"
+mkdir -p /etc/NetworkManager/conf.d
+printf '[connection]\nwifi.powersave = 2\n' > /etc/NetworkManager/conf.d/wifi-powersave-off.conf
+
+echo "[~2 сек] вырез экрана: в gmobile есть xiaomi,beryllium, а DT-compatible телефона xiaomi,beryllium-ebbg → подменяем"
+mkdir -p /etc/environment.d
+printf 'GMOBILE_DT_COMPATIBLES=xiaomi,beryllium\n' > /etc/environment.d/50-gmobile.conf
+
+echo "[~2 сек] USB-гаджет: освобождаем UDC от встроенного g_ether (RNDIS, не понятен macOS) → Mobian поднимает ECM"
+mkdir -p /etc/systemd/system/mobile-usb-gadget.service.d
+cat > /etc/systemd/system/mobile-usb-gadget.service.d/10-free-udc.conf <<'EOS'
+[Service]
+ExecStartPre=-/bin/sh -c 'echo gadget.0 > /sys/bus/gadget/drivers/g_ether/unbind'
+ExecStartPre=-/usr/sbin/mobile-usb-gadget reset
+EOS
+systemctl daemon-reload
+
+echo "[~2 сек] Bluetooth на ядрах 6.18/7.2: копия NVM crnv21.bin в /lib/firmware/qca/ (иначе hci0 не поднимается, 0x204b; вики Mobian)"
+if [ -f /lib/firmware/updates/qca/beryllium/crnv21.bin ]; then
+  cp /lib/firmware/updates/qca/beryllium/crnv21.bin /lib/firmware/qca/crnv21.bin
+fi
+
+echo "Готово. Перезагрузить телефон (rmtfs-маска вступит в силу после ребута): sudo reboot"
+echo "Проверка: apt-mark showhold; systemctl is-enabled rmtfs-dir; ip -br a | grep wlan"

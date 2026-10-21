@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# Прошивка Mobian (sdm845, Poco F1 beryllium-ebbg) из images/mobian.
+# Использование: scripts/mobian-flash [--yes] [--reboot] [--tianma]
+#   --yes     не спрашивать подтверждение перед erase userdata
+#   --reboot  в конце сделать fastboot reboot
+#   --tianma  boot-образ для панели tianma (по умолчанию ebbg, с rw в cmdline)
+# ВАЖНО: boot-образ должен быть с `rw` вместо `ro` в cmdline, иначе бутлуп
+# (см. STATE.md). Телефон не пробрасывать в виртуалку во время прошивки.
+set -euo pipefail
+
+cd "$(dirname "$0")/../images/mobian"
+
+YES=0; REBOOT=0
+BOOT="boot-beryllium-ebbg-rw.img"
+ROOTFS="mobian-sdm845-phosh-20260927.rootfs.img"
+for a in "$@"; do
+  case "$a" in
+    --yes) YES=1 ;;
+    --reboot) REBOOT=1 ;;
+    --tianma) BOOT="boot-beryllium-tianma-rw.img" ;;
+    *) echo "неизвестный аргумент: $a" >&2; exit 2 ;;
+  esac
+done
+
+# rw-образ boot не лежит в git: если нет — собираем из оригинала (scripts/make-boot-rw)
+if [ ! -f "$BOOT" ]; then
+  variant=ebbg; case "$BOOT" in *tianma*) variant=tianma ;; esac
+  echo "[~30 сек] нет $BOOT — делаю scripts/make-boot-rw $variant"
+  "$(dirname "$0")/make-boot-rw" "$variant" >/dev/null
+fi
+for f in "$BOOT" "$ROOTFS"; do
+  [ -f "$f" ] || { echo "нет файла images/mobian/$f" >&2; exit 1; }
+done
+
+echo "[~5 сек] проверяю fastboot"
+fastboot devices | grep -q fastboot || { echo "телефон не в fastboot" >&2; exit 1; }
+product=$(fastboot getvar product 2>&1 | awk -F': ' '/^product/{print $2}')
+[ "$product" = "beryllium" ] || { echo "product=$product, ожидался beryllium" >&2; exit 1; }
+
+if [ "$YES" -ne 1 ]; then
+  echo "Будет стёрт userdata (все данные на телефоне). Продолжить? [yes/N]"
+  read -r ans
+  [ "$ans" = "yes" ] || { echo "отменено"; exit 1; }
+fi
+
+echo "[~2 сек] boot: $BOOT"
+fastboot flash boot "$BOOT"
+echo "[~2 сек] erase userdata"
+fastboot erase userdata
+echo "[~3 мин] userdata: $ROOTFS (61 кусок по 100M)"
+fastboot -S 100M flash userdata "$ROOTFS"
+echo "[~2 сек] erase dtbo"
+fastboot erase dtbo
+
+if [ "$REBOOT" -eq 1 ]; then
+  fastboot reboot
+else
+  echo "Готово. Перезагрузка: fastboot reboot"
+fi
+echo "После первой загрузки запустить scripts/mobian-postinstall (см. README)."

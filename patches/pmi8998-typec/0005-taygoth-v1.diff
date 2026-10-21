@@ -1,0 +1,67 @@
+diff --git a/arch/arm64/boot/dts/qcom/sdm845-oneplus-common.dtsi b/arch/arm64/boot/dts/qcom/sdm845-oneplus-common.dtsi
+index 6b7378cf4d49..42badc71ba6a 100644
+--- a/arch/arm64/boot/dts/qcom/sdm845-oneplus-common.dtsi
++++ b/arch/arm64/boot/dts/qcom/sdm845-oneplus-common.dtsi
+@@ -606,6 +606,36 @@ &pmi8998_charger {
+ 	status = "okay";
+ };
+ 
++&pmi8998_vbus {
++	regulator-min-microamp = <500000>;
++	regulator-max-microamp = <1500000>;
++	status = "okay";
++};
++
++&pmi8998_typec {
++	status = "okay";
++
++	connector {
++		compatible = "usb-c-connector";
++		label = "USB-C";
++		power-role = "dual";
++		data-role = "dual";
++		try-power-role = "sink";
++
++		ports {
++			#address-cells = <1>;
++			#size-cells = <0>;
++
++			port@0 {
++				reg = <0>;
++				pmi8998_hs_in: endpoint {
++					remote-endpoint = <&usb_1_dwc3_hs>;
++				};
++			};
++		};
++	};
++};
++
+ &pmi8998_flash {
+ 	status = "okay";
+ 
+@@ -890,19 +920,18 @@ &usb_1 {
+ };
+ 
+ &usb_1_dwc3 {
+-	/*
+-	 * We don't have the capability to switch modes yet.
+-	 */
+-	dr_mode = "peripheral";
+-
+-	/* fastest mode for USB 2 */
+-	maximum-speed = "high-speed";
++	dr_mode = "otg";
++	usb-role-switch;
+ 
+ 	/* Remove USB3 phy as it's unused on this device. */
+ 	phys = <&usb_1_hsphy>;
+ 	phy-names = "usb2-phy";
+ };
+ 
++&usb_1_dwc3_hs {
++	remote-endpoint = <&pmi8998_hs_in>;
++};
++
+ &usb_1_hsphy {
+ 	status = "okay";
+ 

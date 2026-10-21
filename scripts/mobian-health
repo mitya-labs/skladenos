@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+# Долгий замер здоровья Mobian на Poco F1 (утечка памяти, расход батареи, перегрев,
+# пропажа звуковой карты / падение adsp, спам в dmesg). Запускать НА ТЕЛЕФОНЕ от root.
+#
+#   mobian-health run [интервал_с=60] [csv=/var/log/mobian-health.csv]
+#       пишет по строке CSV раз в интервал; MAX_SAMPLES=N ограничивает число замеров
+#   mobian-health summary [csv] [интервал_с=60]
+#       итоги: расход батареи в час, рост памяти, пропажи карты/adsp, пики, разрывы (сон)
+#
+# Как пользоваться (чтобы замер пережил отключение SSH):
+#   scp scripts/mobian-health mobian@mobian.local:/tmp/
+#   ssh -t mobian@mobian.local 'sudo install -m755 /tmp/mobian-health /usr/local/sbin/ && \
+#        sudo systemd-run --unit=mobian-health /usr/local/sbin/mobian-health run 60'
+#   (отключить зарядку, пользоваться как обычно, через пару часов:)
+#   ssh -t mobian@mobian.local 'sudo mobian-health summary'
+#   остановить: sudo systemctl stop mobian-health
+set -u
+
+BAT=/sys/class/power_supply/qcom-battery
+USB=/sys/class/power_supply/pmi8998-charger
+
+rd() { cat "$1" 2>/dev/null || echo ""; }
+
+rss_mb() {  # суммарный RSS процессов с именем $1, МБ
+  ps -o rss= -C "$1" 2>/dev/null | awk '{s+=$1} END{printf "%d", s/1024}'
+}
+
+adsp_state() {
+  for r in /sys/class/remoteproc/remoteproc*; do
+    [ "$(rd "$r/name")" = "remoteproc-adsp" ] && { rd "$r/state"; return; }
+  done
+  echo "none"
+}
+
+cmd_run() {
+  local interval="${1:-60}" csv="${2:-/var/log/mobian-health.csv}"
+  [ "$(id -u)" -eq 0 ] || { echo "нужен root" >&2; exit 1; }
+  [ -s "$csv" ] || echo "ts,up_s,bat_pct,bat_status,bat_cur_uA,bat_volt_uV,bat_temp_dC,usb_online,cpu_busy_pct,max_temp_C,mem_used_MB,mem_avail_MB,swap_used_MB,phosh_rss_MB,phoc_rss_MB,wireplumber_rss_MB,dmesg_lines,adsp,card,load1,suspends" > "$csv"
+  local n=0 pt=0 pi=0
+  while :; do
+    local ts up
+    ts=$(date +%s); up=$(cut -d. -f1 /proc/uptime)
+    # загрузка CPU между замерами (по /proc/stat)
+    read -r _ u n_ s i w q sq _ < /proc/stat
+    local tot=$((u + n_ + s + i + w + q + sq)) idle=$((i + w)) busy=0
+    if [ "$pt" -gt 0 ] && [ "$tot" -gt "$pt" ]; then
+      busy=$(( 100 * ( (tot - pt) - (idle - pi) ) / (tot - pt) ))
+    fi
+    pt=$tot; pi=$idle
+    local maxt
+    maxt=$(cat /sys/class/thermal/thermal_zone*/temp 2>/dev/null | sort -n | tail -1)
+    maxt=$(( ${maxt:-0} / 1000 ))
+    local mem_used mem_avail swap_used
+    eval "$(awk '/MemTotal/{t=$2} /MemAvailable/{a=$2} /SwapTotal/{st=$2} /SwapFree/{sf=$2}
+      END{printf "mem_used=%d mem_avail=%d swap_used=%d", (t-a)/1024, a/1024, (st-sf)/1024}' /proc/meminfo)"
+    local card=0; [ -d /proc/asound/card0 ] && card=1
+    echo "$ts,$up,$(rd $BAT/capacity),$(rd $BAT/status),$(rd $BAT/current_now),$(rd $BAT/voltage_now),$(rd $BAT/temp),$(rd $USB/online),$busy,$maxt,$mem_used,$mem_avail,$swap_used,$(rss_mb phosh),$(rss_mb phoc),$(rss_mb wireplumber),$(dmesg 2>/dev/null | wc -l),$(adsp_state),$card,$(cut -d' ' -f1 /proc/loadavg),$(rd /sys/power/suspend_stats/success)" >> "$csv"
+    n=$((n + 1))
+    [ -n "${MAX_SAMPLES:-}" ] && [ "$n" -ge "$MAX_SAMPLES" ] && break
+    sleep "$interval"
+  done
+}
+
+cmd_summary() {
+  local csv="${1:-/var/log/mobian-health.csv}" interval="${2:-60}"
+  [ -s "$csv" ] || { echo "нет данных: $csv" >&2; exit 1; }
+  awk -F, -v iv="$interval" '
+    NR==1 { next }
+    { rows++; if (rows==1) { t0=$1; p0=$3; m0=$11; d0=$17; ph0=$14; pc0=$15; wp0=$16; s0=$12 }
+      t1=$1; p1=$3; m1=$11; d1=$17; ph1=$14; pc1=$15; wp1=$16; s1=$12; a1=$12
+      if ($4=="Discharging") { dis++; if (!dis0) { dis0=$1; dp0=$3 } dis1=$1; dp1=$3 }
+      if ($10+0>maxt) maxt=$10+0; if ($9+0>maxc) maxc=$9+0
+      if ($19!=1) nocard++; if ($18!="running") noadsp++
+      if (prev && $1-prev > 2.5*iv) { gaps++; gapt+=$1-prev }
+      if ($7+0>maxbt) maxbt=$7+0; prev=$1; if ($4=="Discharging" && $5+0>maxi) maxi=$5+0 }
+    END {
+      hrs=(t1-t0)/3600
+      printf "Строк: %d, длительность: %.2f ч\n", rows, hrs
+      printf "Батарея: %s%% → %s%%", p0, p1
+      if (dis>1 && dis1>dis0) printf "  | на разряде: %d%% за %.2f ч = %.1f%%/ч", dp0-dp1, (dis1-dis0)/3600, (dp0-dp1)/((dis1-dis0)/3600)
+      printf "\n"
+      printf "Память (used МБ): %d → %d (%+d МБ, %+.0f МБ/ч)\n", m0, m1, m1-m0, (hrs>0?(m1-m0)/hrs:0)
+      printf "RSS phosh: %d → %d МБ, phoc: %d → %d МБ, wireplumber: %d → %d МБ\n", ph0, ph1, pc0, pc1, wp0, wp1
+      printf "Макс. температура: %d °C, батарея макс.: %.1f °C, макс. загрузка CPU: %d%%\n", maxt, maxbt/10, maxc
+      printf "Звуковой карты не было в %d из %d замеров; adsp не running: %d\n", nocard+0, rows, noadsp+0
+      printf "Строк dmesg: %d → %d (%+d)\n", d0, d1, d1-d0
+      printf "Разрывов (сон/зависание >%.0f с): %d, суммарно %.1f мин\n", 2.5*iv, gaps+0, gapt/60
+    }' "$csv"
+}
+
+case "${1:-}" in
+  run)     shift; cmd_run "$@" ;;
+  summary) shift; cmd_summary "$@" ;;
+  *) sed -n '2,19p' "$0"; exit 2 ;;
+esac

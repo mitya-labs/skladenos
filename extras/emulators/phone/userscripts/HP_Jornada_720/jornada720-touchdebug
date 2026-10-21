@@ -1,0 +1,8 @@
+#!/bin/sh
+# title="Jornada 720: touch debug (log to ~/touch.log)"
+export J720_TOUCH_DEBUG=1
+# QEMU в тайловом окне sway сначала рисует мелко; sxmo_qemu_resize.sh «пинает» окно (STATE п.111); окно уважает поля под челку и статус-бар
+"$HOME/Developer/qemu-jornada720/run.sh" 2>"$HOME/touch.log" &
+RUN=$!
+"$HOME/.local/bin/sxmo_qemu_resize.sh" --wait
+wait $RUN

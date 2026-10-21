@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Режет снимок (snap.tar.zst) на части <1 ГБ для облака с лимитом на размер файла.
+#   scripts/snapshot-split images/snapshots/mobian-<метка> [размер_МБ=900]
+# Результат: <снимок>/parts/snap.tar.zst.partNN + parts.sha256 (суммы частей и целого) + JOIN.txt.
+# Части по 900 МиБ (943 718 400 Б): меньше и 10^9, и 2^30, т.е. проходят при любой трактовке лимита «1 ГБ».
+# Склейка и проверка: см. JOIN.txt (cat parts | shasum = исходный sha256). Оригинал не удаляется.
+set -euo pipefail
+SNAP="${1:?укажи папку снимка}"
+MB="${2:-900}"
+cd "$SNAP"
+[ -f snap.tar.zst ] || { echo "нет snap.tar.zst в $SNAP" >&2; exit 1; }
+rm -rf parts; mkdir parts
+echo "[$(date +%H:%M)] режу на части по ${MB} МиБ"
+split -b "${MB}m" -d -a 2 snap.tar.zst parts/snap.tar.zst.part
+(cd parts && shasum -a 256 snap.tar.zst.part* > parts.sha256)
+WHOLE="$(cat parts/snap.tar.zst.part* | shasum -a 256 | cut -d' ' -f1)"
+ORIG="$(shasum -a 256 snap.tar.zst | cut -d' ' -f1)"
+[ "$WHOLE" = "$ORIG" ] || { echo "СКЛЕЙКА НЕ СОВПАДАЕТ" >&2; exit 1; }
+echo "$ORIG  snap.tar.zst (целое)" >> parts/parts.sha256
+cp snap.boot.img.zst snap.meta.txt snap.sha256 parts/ 2>/dev/null || true
+cat > parts/JOIN.txt <<EOT
+Склейка: cat snap.tar.zst.part* > snap.tar.zst
+Проверка: shasum -a 256 snap.tar.zst  -> $ORIG
+Дальше восстановление как обычно (RESTORE.md §8/§11): zstd -dc snap.tar.zst | tar -xpf - -C /
+EOT
+ls -la parts | awk '{print $5, $9}'
+echo "[$(date +%H:%M)] готово: $SNAP/parts (склейка проверена)"

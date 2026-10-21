@@ -1,0 +1,32 @@
+#!/bin/sh
+# Цикл пробных загрузок: sudo reboot по SSH, ждём сеть, пишем результат в logs/boot-trials.csv
+# Колонка screen заполняется человеком.
+# Использование: scripts/boot-trial-loop [количество] [хост]
+N="${1:-10}"
+HOST="${2:-172.16.42.1}"
+LOG="logs/boot-trials.csv"
+[ -f "$LOG" ] || echo "time,result,seconds,ssh,dsi_status,dsi_enabled,wlan,modem,screen" > "$LOG"
+
+SSH="ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 mitya@$HOST"
+
+for i in $(seq 1 "$N"); do
+	echo "=== Загрузка $i/$N ==="
+	$SSH "sudo sync; sudo reboot" 2>/dev/null
+	sleep 5
+	SECONDS=0
+	result=NONET
+	while [ "$SECONDS" -lt 240 ]; do
+		if nc -z -G 3 "$HOST" 22 2>/dev/null; then result=OK; break; fi
+		sleep 5
+	done
+	t=$SECONDS
+	echo "result=$result after ${t}s"
+	if [ "$result" = OK ]; then
+		row=$($SSH "cat /sys/class/drm/card*-DSI-*/status 2>/dev/null; echo -n ','; cat /sys/class/drm/card*-DSI-*/enabled 2>/dev/null; echo -n ','; ip link show wlan0 2>/dev/null | grep -c UP; echo -n ','; ls /sys/class/remoteproc 2>/dev/null | grep -c mpss" 2>/dev/null | tr '\n' ' ' | tr -d ' ')
+		echo "$(date '+%F %T'),$result,$t,1,$row," >> "$LOG"
+	else
+		echo "$(date '+%F %T'),$result,$t,0,,,,," >> "$LOG"
+	fi
+	sleep 5
+done
+echo "Готово: $(grep -c . $LOG) строк в $LOG"

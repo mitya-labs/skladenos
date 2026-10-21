@@ -1,0 +1,536 @@
+#!/usr/bin/env bash
+# Настройка SXMO на Poco F1 (beryllium-ebbg) на телефоне. Запускать от root:
+#   scp scripts/sxmo-setup mobian@mobian.local:/tmp/ && ssh -t mobian@mobian.local sudo bash /tmp/sxmo-setup
+# Что делает:
+#  1. кладёт профиль устройства /usr/local/bin/sxmo_deviceprofile_xiaomi,beryllium-ebbg.sh
+#     (без него SXMO пишет «deviceprofile not found», кнопки не работают, и отключает suspend/idle);
+#  2. правит ~/.config/sxmo/sway пользователя mobian: обои (в пакете нет /usr/share/sxmo/background.jpg)
+#     и заливка под челку: пустой бар `notch` (NOTCH_H=28 логических px, цвет NOTCH_BG=#323232) над основным баром;
+#  2b. хук статус-бара: без SIM слово failed заменяется значком (после обновления пакета SXMO запустить заново: версия хука сверяется);
+#  2c. часы в верхнем баре notch справа (из основного убраны); TIMEZONE=Europe/Moscow — выставить часовой пояс (по умолчанию UTC);
+#  3c. хук поворота экрана sxmo_hook_rotate.sh: бар notch прячется, поле со стороны челки, часы в основной бар;
+#  3e. обёртка sxmo_wm.sh: повторное включение дисплея (первое включение после выключения не срабатывает → «подсветка со 2-го нажатия»);
+#  3. хуки кнопок/жестов: ~/.config/sxmo/hooks/xiaomi,beryllium-ebbg → default_hooks/oneplus,enchilada
+#     (каталога для этого устройства в пакете нет → «sxmo_hook_inputhandler.sh: not found», кнопки молчат);
+#  4. раскладки кнопок: пакет кладёт xkb_mobile_*_buttons в /usr/share/sxmo/xkb/, а SXMO ищет в sxmo/sway/
+#     (и только в $XDG_DATA_DIRS, не в ~/.local) → ссылки в /usr/local/share/sxmo/sway/;
+#  3j. клавиатуры: KEYBOARD_ARGS (wvkbd: simple,cyrillic,special,emoji) в profile и блок input type:keyboard us,ru + CapsLock в sway;
+#  3k. язык внешней клавиатуры (EN/RU) в основном баре в альбомной ориентации: ~/.local/bin/sxmo_kbd_lang.sh + юнит sxmo-kbd-lang;
+#  3b. дропин user-службы sxmo_menumode_toggler: подгрузка профиля (кнопки в меню как стрелки);
+#  3d. дропин sxmo_networkmonitor: после старта ждёт Wi-Fi и перерисовывает значок (гонка → красный значок на загрузке);
+#  5. udev: перечитать правила SXMO и «переиграть» события ввода, чтобы появился /dev/input/touchscreen (lisgd, жесты);
+#  6. перезапускает sxmo.service и пользовательские службы SXMO (если sxmo запущен).
+# Переменные: SXMO_USER (mobian), NOTCH_H (28), NOTCH_BG (#323232), WALLPAPER (например /home/mobian/wallpaper-hotkeys.png из assets/), TIMEZONE, NBSP_PAD (в самих скриптах баров).
+set -euo pipefail
+[ "$(id -u)" -eq 0 ] || { echo "нужен root" >&2; exit 1; }
+
+U="${SXMO_USER:-mobian}"
+H="$(getent passwd "$U" | cut -d: -f6)"
+WALLPAPER="${WALLPAPER:-/usr/share/phosh/backgrounds/byzantium-abstract-720x1440.jpg}"
+PROFILE="/usr/local/bin/sxmo_deviceprofile_xiaomi,beryllium-ebbg.sh"
+SWAYCFG="$H/.config/sxmo/sway"
+
+echo "[1/6] профиль устройства → $PROFILE"
+cat > "$PROFILE" <<'EOP'
+#!/bin/sh
+# SXMO deviceprofile для Xiaomi Poco F1 (beryllium-ebbg). Основа — апстрим postmarketOS (SXMO 1.18.1,
+# sxmo_deviceprofile_xiaomi,beryllium[-ebbg].sh); идентификаторы — из `swaymsg -t get_inputs`.
+# SXMO_DEVICE_NAME = первая compatible из /proc/device-tree/compatible: xiaomi,beryllium-ebbg
+export SXMO_MONITOR="DSI-1"
+export SXMO_POWER_BUTTON="0:0:pm8941_pwrkey"
+export SXMO_VOLUME_BUTTON="1:1:gpio-keys 0:0:pm8941_resin"
+export SXMO_SWAY_SCALE="3"
+export SXMO_VIBRATE_DEV="/dev/input/by-path/platform-c440000.spmi-platform-c440000.spmi:pmic@3:haptics@c000-event"
+# ниже — не из апстрима, нужны SXMO 1.12 из Mobian
+export SXMO_TOUCHSCREEN_ID="0:0:generic_ft5x06_(d0)"
+export SXMO_DISABLE_LEDS="1"
+EOP
+chmod 755 "$PROFILE"
+
+echo "[2/6] скрипты баров и sway-конфиг $SWAYCFG"
+# В строке status_command sway режет конфиг по ';' → логика в отдельных скриптах.
+# Неразрывные пробелы справа отодвигают текст от скруглённых углов дисплея (status_edge_padding в этой сборке swaybar не работает).
+cat > /usr/local/bin/sxmo-notch-clock <<'EOC'
+#!/bin/sh
+# бар notch (swaybar, протокол i3bar JSON): слева индикатор блокировки (кружок), справа часы.
+# Кружок белый — SXMO разблокирован, красный — lock/screenoff (тач заблокирован); состояние: $XDG_RUNTIME_DIR/sxmo.state.
+# JSON-протокол нужен, чтобы блок с кружком стоял у левого края: обычный текстовый статус swaybar всегда прижат вправо.
+# CIRCLE_MIN_WIDTH — ширина блока с кружком (логические px, экран ×3): ширина бара (360) минус ширина часов с отступом (~75).
+# NBSP_PAD справа и LEFT_PAD слева — неразрывные пробелы: отодвигают текст от скруглённых углов (status_edge_padding в этой swaybar не работает).
+MINW="${CIRCLE_MIN_WIDTH:-285}"
+PAD=""; i=0
+while [ "$i" -lt "${NBSP_PAD:-3}" ]; do PAD="$PAD$(printf '\302\240')"; i=$((i + 1)); done
+LPAD=""; i=0
+while [ "$i" -lt "${LEFT_PAD:-2}" ]; do LPAD="$LPAD$(printf '\302\240')"; i=$((i + 1)); done
+STATE_FILE="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/sxmo.state"
+printf '{"version":1}\n[\n'
+last=""
+while :; do
+	state=$(cat "$STATE_FILE" 2>/dev/null)
+	if [ "$state" = "unlock" ] || [ -z "$state" ]; then color="#ffffff"; else color="#ff3b30"; fi
+	t=$(date +%H:%M)
+	key="$color $t"
+	if [ "$key" != "$last" ]; then
+		printf '[{"full_text":"%s<span size=\\"large\\">●</span>","markup":"pango","color":"%s","min_width":%s,"align":"left","separator":false,"separator_block_width":0},{"full_text":"%s%s","color":"#ffffff","separator":false,"separator_block_width":0}],\n' "$LPAD" "$color" "$MINW" "$t" "$PAD"
+		last="$key"
+	fi
+	sleep 1
+done
+EOC
+cat > /usr/local/bin/sxmo-status-padded <<'EOC'
+#!/bin/sh
+# основной бар: sxmo_status.sh watch + неразрывные пробелы справа (иначе крайняя иконка уходит под скругление дисплея)
+PAD=""
+i=0
+while [ "$i" -lt "${NBSP_PAD:-2}" ]; do PAD="$PAD$(printf '\302\240')"; i=$((i + 1)); done
+sxmo_status.sh watch | while IFS= read -r line; do
+	printf '%s%s\n' "$line" "$PAD"
+done
+EOC
+chmod 755 /usr/local/bin/sxmo-notch-clock /usr/local/bin/sxmo-status-padded
+
+if [ -f "$SWAYCFG" ]; then
+  cp -n "$SWAYCFG" "$SWAYCFG.orig"
+  # обои
+  # Обои. swaybg, запущенный самим sway (и `output * bg`, и `output DSI-1 bg`), на ядре 7.2 рисует чёрное, а из отдельного
+  # user-юнита (systemd-run) рисует (STATE п.103). Поэтому `output … bg` убираем, а swaybg запускаем exec_always.
+  sed -i "/^output [^ ]* bg /d; /^# Обои (STATE п.103)/,+1d" "$SWAYCFG"
+  cat >> "$SWAYCFG" <<EOWP
+# Обои (STATE п.103): swaybg от самого sway рисует чёрное; из отдельного user-юнита рисует. Свой фоновый swaybg sway убираем.
+exec_always sh -c "sleep 2; systemctl --user stop sxmo-wallpaper; pkill -x swaybg; exec systemd-run --user --collect --unit=sxmo-wallpaper -E WAYLAND_DISPLAY -E XDG_RUNTIME_DIR swaybg -o DSI-1 -i $WALLPAPER -m fill"
+EOWP
+  # Вырез: пустой бар `notch` (mode overlay, поверх, без своей зоны) с часами справа; основной бар опускается на NOTCH_H
+  # (gaps) и использует обёртку с отступом. Порядок создания баров поэтому не важен.
+  NOTCH_H="${NOTCH_H:-28}" NOTCH_BG="${NOTCH_BG:-#323232}" SWAYCFG="$SWAYCFG" python3 - <<'PY'
+import os, re
+p = os.environ["SWAYCFG"]; H = os.environ["NOTCH_H"]; BG = os.environ["NOTCH_BG"]
+s = open(p, encoding="utf-8").read()
+s = re.sub(r"(?ms)^# --- [^\n]*notch[^\n]*\n", "", s)                      # старый комментарий
+s = re.sub(r"(?ms)^bar notch \{\n.*?^\}\n\n?", "", s)                    # старый бар notch (любая версия)
+notch = ("# --- заливка под челку/скругления и часы справа (scripts/sxmo-setup) ---\n"
+         "bar notch {\n    position top\n    mode overlay\n    height %s\n    workspace_buttons no\n    binding_mode_indicator no\n"
+         "    status_command /usr/local/bin/sxmo-notch-clock\n    pango_markup enabled\n    font pango:Monospace 11\n"
+         "    colors {\n        statusline #ffffff\n        background %s\n    }\n}\n\n" % (H, BG))
+m = re.search(r"(?ms)^bar \{\n.*?^\}\n", s)
+mb = m.group(0)
+mb2 = re.sub(r"(?m)^    gaps [0-9 ]+\n", "", mb)
+mb2 = re.sub(r"(?m)^    status_edge_padding [0-9]+\n", "", mb2)
+mb2 = mb2.replace("    position top\n", "    position top\n    gaps %s 0 0 0\n" % H, 1)
+mb2 = re.sub(r"(?m)^    status_command .*\n", "    status_command /usr/local/bin/sxmo-status-padded\n", mb2, count=1)
+s = s.replace(mb, notch + mb2, 1)
+open(p, "w", encoding="utf-8").write(s)
+PY
+  chown "$U":"$U" "$SWAYCFG" "$SWAYCFG.orig"
+  grep -n -E "^output .* bg|swaybg|^bar |^    (position|mode|height|gaps|status_command)" "$SWAYCFG"
+else
+  echo "  (нет $SWAYCFG: запустите SXMO один раз, он создаст конфиг, и повторите)"
+fi
+
+echo "[2b/6] статус-бар: вместо слова failed (нет SIM) — значок модема (пользовательская копия хука с тем же configversion)"
+DST="$H/.config/sxmo/hooks/sxmo_hook_statusbar.sh" python3 - <<'PY'
+import os, sys
+src = "/usr/share/sxmo/default_hooks/sxmo_hook_statusbar.sh"
+dst = os.path.expanduser(os.environ.get("DST", "~/.config/sxmo/hooks/sxmo_hook_statusbar.sh"))
+s = open(src, encoding="utf-8").read()
+old = '\t\t\t\tsxmo_log "WARNING: MODEMSTATUS: $MODEMSTATUS"\n\t\t\t\tprintf "%s" "$MODEMSTATUS"\n'
+new = '\t\t\t\t# patched (scripts/sxmo-setup): без SIM модем в состоянии failed — вместо слова показываем значок\n\t\t\t\tprintf "%s" "${icon_modem_nomodem:-$MODEMSTATUS}"\n'
+if old not in s:
+    sys.exit("блок FAILED/UNKNOWN не найден (версия SXMO изменилась?)")
+s = s.replace(old, new, 1)
+# значок Wi-Fi красный на старте: nmcli уже сообщает «connected», а operstate ещё не up (и событие больше не повторяется)
+wo = '\tcase "$(cat "/sys/class/net/$2/operstate")" in\n\t\t"up")\n'
+wn = '\t# patched (scripts/sxmo-setup): на старте nmcli уже connected (state 100), а operstate ещё не up — считаем подключённым\n\tcase "$(cat "/sys/class/net/$2/operstate")$(nmcli -g GENERAL.STATE device show "$2" 2>/dev/null | cut -d" " -f1)" in\n\t\t"up"*|*100)\n'
+if wo not in s:
+    sys.exit("set_wifi не найден (версия SXMO изменилась?)")
+s = s.replace(wo, wn, 1)
+# режим «экран не гаснет» (userscripts/screen-awake): значок кофе по флагу sxmo.noidle (переживает ребут), сам мьютекс не показываем;
+# мьютекс phone-nosleep «ssh-work» — значком «сон выключен» вместо обрезанного «ssh-wor…»
+lo = '\tsxmo_mutex.sh can_suspend list | sort -u | while read -r line; do\n\t\tcase "$line" in\n'
+ln = ('\t# patched (scripts/sxmo-setup): значок режима screen-awake (флаг sxmo.noidle)\n'
+      '\t{ [ -e "${XDG_CACHE_HOME:-$HOME/.cache}/sxmo/sxmo.noidle" ] && printf "%s \\n" "${icon_awake:-󰅶}"\n'
+      '\tsxmo_mutex.sh can_suspend list | sort -u | while read -r line; do\n\t\tcase "$line" in\n'
+      '\t\t\t"screen-awake")\n\t\t\t\t;;\n'
+      '\t\t\t"ssh-work")\n\t\t\t\tprintf "%s \\n" "${icon_nosleep:-󰒳}" # phone-nosleep on\n\t\t\t\t;;\n')
+le = '\tdone | sort -u | tr -d \'\\n\' | sxmo_status.sh add 41-lockedby-status\n'
+if lo not in s or le not in s:
+    sys.exit("set_lockedby не найден (версия SXMO изменилась?)")
+# SSH/Mosh-сессия: вместо буквы S значок консоли с сетью (nf-md-console_network)
+so = '\t\t\t"SSH"*|"Mosh"*)\n\t\t\t\tprintf "S\\n"\n'
+if so not in s:
+    sys.exit("метка SSH в set_lockedby не найдена (версия SXMO изменилась?)")
+s = s.replace(so, '\t\t\t"SSH"*|"Mosh"*)\n\t\t\t\tprintf "%s \\n" "${icon_ssh:-󰢩}"\n', 1)
+# LC_ALL=C: в ru_RU sort -u считает разные глифы Nerd Font (PUA) равными и выкидывает один из значков
+s = s.replace(lo, ln, 1).replace(le, '\tdone; } | LC_ALL=C sort -u | tr -d \'\\n\' | sxmo_status.sh add 41-lockedby-status\n', 1)
+os.makedirs(os.path.dirname(dst), exist_ok=True)
+open(dst, "w", encoding="utf-8").write(s)
+os.chmod(dst, 0o755)
+print("ok", dst)
+PY
+chown "$U":"$U" "$H/.config/sxmo/hooks/sxmo_hook_statusbar.sh" 2>/dev/null || true
+
+echo "[2c/6] часы живут в баре notch: из хука статус-бара время убрать; foot.ini под foot>=1.26; часовой пояс"
+runuser -u "$U" -- env HOME="$H" python3 - <<'PY'
+import os, sys
+hp = os.path.join(os.environ["HOME"], ".config/sxmo/hooks/sxmo_hook_statusbar.sh")
+h = open(hp, encoding="utf-8").read()
+import re
+# set_state: красная плашка состояния заменена кружком в баре notch (sxmo-notch-clock)
+if "когда notch скрыт (альбомная" not in h:
+    h2 = re.sub(r"(?ms)^set_state\(\) \{\n.*?^\}\n",
+                "set_state() {\n\t# patched (scripts/sxmo-setup): состояние показывает кружок в баре notch (sxmo-notch-clock);\n\t# когда notch скрыт (альбомная ориентация, sxmo.notch.hidden) — кружок в основном баре\n\tif [ -e \"${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/sxmo.notch.hidden\" ]; then\n\t\tif grep -q unlock \"$SXMO_STATE\"; then COLOR=\"#ffffff\"; else COLOR=\"#ff3b30\"; fi\n\t\tprintf '<span foreground=\"%s\">●</span>' \"$COLOR\" | sxmo_status.sh add 0-state\n\telse\n\t\tsxmo_status.sh del 0-state 2>/dev/null\n\tfi\n\treturn 0\n}\n", h, count=1)
+    if h2 != h:
+        h = h2
+        open(hp, "w", encoding="utf-8").write(h)
+        print("hook: set_state отключён (кружок в notch)")
+old = 'set_time() {\n\tdate "+${SXMO_STATUS_DATE_FORMAT:-%H:%M}" | head -c -1 | sxmo_status.sh add 99-time\n}'
+new = ('set_time() {\n'
+       '\t# patched (scripts/sxmo-setup): время показывает верхний бар `notch`; когда он скрыт (поворот экрана,\n'
+       '\t# sxmo_hook_rotate.sh создаёт sxmo.notch.hidden) — показываем в основном баре\n'
+       '\tif [ -e "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/sxmo.notch.hidden" ]; then\n'
+       '\t\tdate "+${SXMO_STATUS_DATE_FORMAT:-%H:%M}" | head -c -1 | sxmo_status.sh add 99-time\n'
+       '\telse\n'
+       '\t\tsxmo_status.sh del 99-time 2>/dev/null\n'
+       '\tfi\n'
+       '\treturn 0\n}')
+if old in h:
+    open(hp, "w", encoding="utf-8").write(h.replace(old, new, 1)); print("hook: set_time переделан (часы в notch, при повороте — в основном баре)")
+elif "sxmo.notch.hidden" in h:
+    print("hook: уже отключён")
+else:
+    sys.exit("set_time не найден в хуке (версия SXMO изменилась? запустите шаг 2b)")
+PY
+# foot >= 1.26: секция [colors] переименована в [colors-dark] (конфиг SXMO 1.12 написан под старый foot)
+FOOTINI="$H/.config/foot/foot.ini"
+if [ -f "$FOOTINI" ] && grep -q '^\[colors\]' "$FOOTINI"; then
+  sed -i 's/^\[colors\]/[colors-dark]/' "$FOOTINI"; echo "  foot.ini: [colors] -> [colors-dark]"
+fi
+# часовой пояс (TIMEZONE=Europe/Moscow); пусто — не менять (по умолчанию на телефоне UTC)
+if [ -n "${TIMEZONE:-}" ]; then timedatectl set-timezone "$TIMEZONE" && date "+  время теперь: %H:%M %Z"; fi
+
+echo "[3/6] хуки кнопок и жестов"
+install -d -o "$U" -g "$U" "$H/.config/sxmo/hooks"
+ln -sfn "/usr/share/sxmo/default_hooks/oneplus,enchilada" "$H/.config/sxmo/hooks/xiaomi,beryllium-ebbg"
+chown -h "$U":"$U" "$H/.config/sxmo/hooks/xiaomi,beryllium-ebbg"
+
+echo "[3c/6] поворот экрана: челка уходит влево/вправо/вниз → прячем бар notch, поле со стороны челки, часы в основной бар"
+V=$(grep -m1 '^# configversion:' /usr/share/sxmo/default_hooks/sxmo_hook_rotate.sh)
+{
+  echo '#!/bin/sh'
+  echo "$V"
+  cat <<'EOR'
+# Poco F1: вырез и скруглённые углы при повороте (scripts/sxmo-setup).
+# $1 = normal | right (transform 90: челка слева) | left (transform 270: челка справа) | invert (180: челка снизу)
+NOTCH_H="${NOTCH_H:-28}"
+MARK="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/sxmo.notch.hidden"
+MAIN=$(swaymsg -t get_bar_config | jq -r '.[]' | grep -v '^notch$' | head -1)
+reset_gaps() { for e in top right bottom left; do swaymsg gaps "$e" all set 0 >/dev/null; done; }
+# runtime-команда `bar gaps` меняет конфиг, но swaybar не перерисовывается → пересоздаём поверхность (invisible → dock)
+main_gaps() { swaymsg bar "$MAIN" gaps "$@" >/dev/null; swaymsg bar "$MAIN" mode invisible >/dev/null; sleep 1; swaymsg bar "$MAIN" mode dock >/dev/null; }
+case "$1" in
+	normal)
+		rm -f "$MARK"
+		swaymsg bar notch mode overlay >/dev/null
+		main_gaps "$NOTCH_H" 0 0 0
+		reset_gaps
+		;;
+	right|left|invert)
+		: > "$MARK"
+		swaymsg bar notch mode invisible >/dev/null
+		# бар не заходит в зону челки: со стороны челки отступ NOTCH_H (right: слева, left: справа)
+		case "$1" in right) main_gaps 0 12 0 "$NOTCH_H" ;; left) main_gaps 0 "$NOTCH_H" 0 12 ;; *) main_gaps 0 12 0 12 ;; esac
+		reset_gaps
+		case "$1" in
+			right) swaymsg gaps left all set "$NOTCH_H" >/dev/null ;;
+			left) swaymsg gaps right all set "$NOTCH_H" >/dev/null ;;
+			invert) swaymsg gaps bottom all set "$NOTCH_H" >/dev/null ;;
+		esac
+		;;
+esac
+# Обои: портретные для normal/invert, ландшафтные для right/left (STATE п.104); swaybg перезапускаем юнитом sxmo-wallpaper (п.103)
+case "$1" in right|left) WP="$HOME/wallpaper-hotkeys-landscape.png" ;; *) WP="$HOME/wallpaper-hotkeys.png" ;; esac
+if [ -f "$WP" ]; then
+	systemctl --user stop sxmo-wallpaper 2>/dev/null
+	systemd-run --user --collect --unit=sxmo-wallpaper -E WAYLAND_DISPLAY -E XDG_RUNTIME_DIR swaybg -o DSI-1 -i "$WP" -m fill >/dev/null 2>&1
+fi
+# QEMU (Jornada) после смены размера окна надо «пнуть», иначе картинка остаётся мелкой (STATE п.111)
+pgrep -x qemu-system-arm >/dev/null 2>&1 && "$HOME/.local/bin/sxmo_qemu_resize.sh" >/dev/null 2>&1 &
+sxmo_hook_statusbar.sh time >/dev/null 2>&1
+sxmo_hook_statusbar.sh state >/dev/null 2>&1
+"$HOME/.local/bin/sxmo_kbd_lang.sh" >/dev/null 2>&1
+EOR
+} > "$H/.config/sxmo/hooks/sxmo_hook_rotate.sh"
+chmod 755 "$H/.config/sxmo/hooks/sxmo_hook_rotate.sh"
+chown "$U":"$U" "$H/.config/sxmo/hooks/sxmo_hook_rotate.sh"
+
+echo "[3d/6] superctl-шим: sxmo_rotate.sh и др. зовут superctl (из superd, в Debian его нет) → перенаправляем на systemctl --user"
+if ! command -v superctl >/dev/null 2>&1 || grep -q 'sxmo-setup shim' /usr/local/bin/superctl 2>/dev/null; then
+  cat > /usr/local/bin/superctl <<'EOS'
+#!/bin/sh
+# sxmo-setup shim: superctl (superd) -> systemd --user
+cmd="$1"; shift
+case "$cmd" in
+	start|stop|restart|status|enable|disable|is-active) exec systemctl --user "$cmd" "$@" ;;
+	*) exit 0 ;;
+esac
+EOS
+  chmod 755 /usr/local/bin/superctl
+fi
+
+echo "[3d'] doas-шим: меню Power → Reboot/Poweroff зовёт «doas reboot» (doas в Debian нет) → systemctl (logind разрешает из активной сессии, STATE п.128)"
+if ! command -v doas >/dev/null 2>&1 || grep -q 'sxmo-setup shim' /usr/local/bin/doas 2>/dev/null; then
+  cat > /usr/local/bin/doas <<'EOS'
+#!/bin/sh
+# sxmo-setup shim: doas (в Debian нет) -> systemctl для reboot/poweroff, остальное -> sudo
+case "$1" in
+	reboot|poweroff) exec systemctl "$1" ;;
+	*) exec sudo "$@" ;;
+esac
+EOS
+  chmod 755 /usr/local/bin/doas
+fi
+
+echo "[3e/6] экран включается только со 2-го нажатия питания: обёртка sxmo_wm.sh повторяет включение дисплея (Poco F1: I2C -5 тача при пробуждении панели)"
+cat > "$H/.config/sxmo/hooks/sxmo_wm.sh" <<'EOW'
+#!/bin/sh
+# Обёртка над /usr/bin/sxmo_wm.sh (scripts/sxmo-setup, шаг 3e).
+# Проблема Poco F1: после выключения дисплея ПЕРВАЯ команда включения (`output * dpms true` / `power on`) возвращает success,
+# но панель остаётся выключенной (drm dpms Off, bl_power=4; в dmesg: edt_ft5x06 14-0038 «Unable to fetch data, error: -5»,
+# geni_i2c «GPI transfer failed: -5»). Со второй попытки экран включается — отсюда «подсветка только со второго нажатия питания».
+# В SXMO `sxmo_wm.sh dpms off` = ВКЛЮЧИТЬ экран (имена инвертированы). Повторяем включение, пока sway не покажет power: true.
+REAL=/usr/bin/sxmo_wm.sh
+"$REAL" "$@"
+rc=$?
+if [ "$1" = dpms ] && [ "$2" = off ] && command -v swaymsg >/dev/null 2>&1; then
+	i=0
+	while [ "$i" -lt "${DPMS_RETRIES:-5}" ]; do
+		swaymsg -t get_outputs 2>/dev/null | grep -q '"power": false' || break
+		sleep "${DPMS_RETRY_DELAY:-0.4}"
+		swaymsg -- output '*' power on >/dev/null 2>&1
+		i=$((i + 1))
+	done
+fi
+exit $rc
+EOW
+chmod 755 "$H/.config/sxmo/hooks/sxmo_wm.sh"
+chown "$U":"$U" "$H/.config/sxmo/hooks/sxmo_wm.sh"
+
+echo "[3b/6] sxmo_menumode_toggler: подгружать профиль устройства (иначе берёт имена кнопок PinePhone и громкость не листает меню)"
+mkdir -p /etc/systemd/user/sxmo_menumode_toggler.service.d
+cat > /etc/systemd/user/sxmo_menumode_toggler.service.d/10-device-profile.conf <<'EOC'
+[Service]
+ExecStart=
+ExecStart=/bin/sh -c ". \"/usr/local/bin/sxmo_deviceprofile_xiaomi,beryllium-ebbg.sh\"; exec /usr/bin/sxmo_menumode_toggler.sh"
+EOC
+systemctl daemon-reload
+
+echo "[3d/6] sxmo_networkmonitor: после старта дождаться Wi-Fi и один раз перерисовать значок (иначе на старте он остаётся красным)"
+mkdir -p /etc/systemd/user/sxmo_networkmonitor.service.d
+cat > /etc/systemd/user/sxmo_networkmonitor.service.d/10-wifi-refresh.conf <<'EOC'
+[Service]
+ExecStartPost=-/bin/sh -c '( i=0; while [ $i -lt 60 ]; do [ "$(nmcli -g GENERAL.STATE device show wlan0 2>/dev/null | cut -d" " -f1)" = 100 ] && break; i=$((i+1)); sleep 2; done; sleep 2; sxmo_hook_statusbar.sh network wifi wlan0 ) </dev/null >/dev/null 2>&1 &'
+EOC
+systemctl daemon-reload
+
+echo "[4/6] раскладки кнопок (xkb) → /usr/local/share/sxmo/sway"
+mkdir -p /usr/local/share/sxmo/sway
+for f in xkb_mobile_normal_buttons xkb_mobile_movement_buttons; do
+  ln -sfn "/usr/share/sxmo/xkb/$f" "/usr/local/share/sxmo/sway/$f"
+done
+
+echo "[5/6] udev: /dev/input/touchscreen для lisgd"
+udevadm control --reload
+udevadm trigger --subsystem-match=input --action=change
+sleep 2
+ls -la /dev/input/touchscreen 2>&1 || echo "  (ссылки нет: проверьте 90-sxmo.rules и ID_INPUT_TOUCHSCREEN)"
+
+echo "[3f/6] настоящий suspend: rtcwake от mobian (группа clock для /dev/rtc0 + sudoers на rtcwake для /sys/power/state, пользовательский хук suspend; без этого SXMO каждые 30 с «засыпает» вхолостую и батарея уходит ~6%/ч)"
+usermod -aG clock "$U"
+echo "$U ALL=(root) NOPASSWD: /usr/sbin/rtcwake" > /etc/sudoers.d/sxmo-rtcwake
+chmod 440 /etc/sudoers.d/sxmo-rtcwake; visudo -cf /etc/sudoers.d/sxmo-rtcwake
+install -d -o "$U" -g "$U" "$H/.config/sxmo/hooks"
+sed 's#rtcwake -m mem#sudo -n rtcwake -m mem#' /usr/share/sxmo/default_hooks/sxmo_hook_suspend.sh > "$H/.config/sxmo/hooks/sxmo_hook_suspend.sh"
+chown "$U":"$U" "$H/.config/sxmo/hooks/sxmo_hook_suspend.sh"; chmod +x "$H/.config/sxmo/hooks/sxmo_hook_suspend.sh"
+
+echo "[3g/6] phone-nosleep → /usr/local/bin (запрет сна на время работы по SSH)"
+cat > /usr/local/bin/phone-nosleep <<'NOSLEEP'
+#!/bin/sh
+# Запретить/разрешить сон SXMO на время работы по SSH (аналог Caffeine в Phosh).
+# Запускать НА ТЕЛЕФОНЕ от mobian:  phone-nosleep on | off | status
+# Использует мьютекс SXMO can_suspend; после ребута сон снова разрешён.
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" PATH="$HOME/.config/sxmo/hooks:$PATH"
+# Мьютекс считает блокировки: каждый «on» добавлял запись, а «off» снимал одну → снимаем все (идемпотентно).
+release() { n=0; while sxmo_mutex.sh can_suspend list 2>/dev/null | grep -qx "ssh-work" && [ "$n" -lt 100 ]; do sxmo_mutex.sh can_suspend free "ssh-work"; n=$((n+1)); done; }
+case "${1:-status}" in
+  on)  release; sxmo_mutex.sh can_suspend lock "ssh-work"; echo "сон запрещён" ;;
+  off) release; echo "сон разрешён" ;;
+  *)   sxmo_mutex.sh can_suspend running 2>/dev/null; sxmo_mutex.sh can_suspend list 2>/dev/null; cat /sys/power/suspend_stats/success ;;
+esac
+NOSLEEP
+chmod 755 /usr/local/bin/phone-nosleep
+
+echo "[3h/6] пункт меню Scripts «nosleep»: переключатель запрета сна"
+install -d -o "$U" -g "$U" "$H/.config/sxmo/userscripts"
+cat > "$H/.config/sxmo/userscripts/nosleep" <<'NOSLEEPMENU'
+#!/bin/sh
+# Пункт меню SXMO «Scripts»: переключатель запрета сна (phone-nosleep on/off) с уведомлением.
+# Ставится в ~/.config/sxmo/userscripts/nosleep (scripts/sxmo-setup шаг 3g); нужен /usr/local/bin/phone-nosleep.
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" PATH="$HOME/.config/sxmo/hooks:$PATH"
+if sxmo_mutex.sh can_suspend list 2>/dev/null | grep -qx "ssh-work"; then
+	phone-nosleep off >/dev/null 2>&1
+	sxmo_notify_user.sh "Sleep ALLOWED"
+else
+	phone-nosleep on >/dev/null 2>&1 </dev/null
+	sxmo_notify_user.sh "Sleep BLOCKED (nosleep on)"
+fi
+NOSLEEPMENU
+chown "$U":"$U" "$H/.config/sxmo/userscripts/nosleep"; chmod +x "$H/.config/sxmo/userscripts/nosleep"
+
+echo "[3i/6] phone-usb (роль USB host/device на лету, нужен boot с dr_mode=otg) + sudoers + пункт меню Scripts «usb»"
+cat > /usr/local/bin/phone-usb <<'PHONEUSB'
+#!/bin/sh
+# Смена роли USB-порта на лету (нужен boot с dr_mode = "otg", STATE п.81–82).
+# Запускать НА ТЕЛЕФОНЕ от root:  sudo phone-usb host | device | status
+#   host   — отвязать гаджет (g1) от UDC, включить xHCI (хаб/флешка/клавиатура)
+#   device — снять xHCI, привязать g1 к UDC (usb0 = 10.66.0.1, SSH с Мака)
+M=/sys/kernel/debug/usb/a600000.usb/mode
+G=/sys/kernel/config/usb_gadget/g1/UDC
+UDC=a600000.usb
+case "${1:-status}" in
+  host)   echo "" > "$G" 2>/dev/null; echo host > "$M"; sleep 2 ;;
+  device) echo device > "$M"; sleep 2; [ -z "$(cat $G)" ] && echo "$UDC" > "$G"; sleep 2 ;;
+  status) ;;
+  *) echo "usage: phone-usb host|device|status" >&2; exit 2 ;;
+esac
+echo "mode=$(cat $M) udc=$(cat /sys/class/udc/$UDC/state 2>/dev/null) gadget=$(cat $G)"
+ip -br a | grep -E "^usb0" ; lsusb -t | grep -E "^/:|Port" | head -8
+PHONEUSB
+chmod 755 /usr/local/bin/phone-usb
+echo "$U ALL=(root) NOPASSWD: /usr/local/bin/phone-usb" > /etc/sudoers.d/sxmo-phone-usb
+chmod 440 /etc/sudoers.d/sxmo-phone-usb; visudo -cf /etc/sudoers.d/sxmo-phone-usb
+# по умолчанию после загрузки dr_mode=otg даёт host (UDC нет, mobile-usb-gadget падает) — переключаем в device до setup
+install -d /etc/systemd/system/mobile-usb-gadget.service.d
+cat > /etc/systemd/system/mobile-usb-gadget.service.d/20-device-default.conf <<'DEVDEF'
+[Unit]
+StartLimitIntervalSec=0
+[Service]
+# роль выбирает драйвер Type-C PMI8998 (STATE п.89–93): форсируем device только если сейчас не host (хаб в порту на загрузке);
+# если UDC ещё нет (host), сервис повторяется раз в 10 с и привяжется, когда появится device (кабель Мака)
+ExecStartPre=-/bin/sh -c '[ "$(cat /sys/class/usb_role/*/role 2>/dev/null)" = host ] || { echo device > /sys/kernel/debug/usb/a600000.usb/mode; sleep 2; }'
+Restart=on-failure
+RestartSec=10
+DEVDEF
+systemctl daemon-reload
+cat > "$H/.config/sxmo/userscripts/usb" <<'USBMENU'
+#!/bin/sh
+# Пункт меню SXMO «Scripts»: переключатель роли USB-порта host <-> device с уведомлением.
+# Ставится в ~/.config/sxmo/userscripts/usb (scripts/sxmo-setup шаг 3i); нужны /usr/local/bin/phone-usb и sudoers sxmo-phone-usb.
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" PATH="$HOME/.config/sxmo/hooks:$PATH"
+if sudo -n /usr/local/bin/phone-usb status 2>/dev/null | grep -q "^mode=host"; then
+	OUT="$(sudo -n /usr/local/bin/phone-usb device 2>&1 </dev/null)"
+	sxmo_notify_user.sh "USB: device (кабель к Маку, usb0 10.66.0.1)"
+else
+	OUT="$(sudo -n /usr/local/bin/phone-usb host 2>&1 </dev/null)"
+	sxmo_notify_user.sh "USB: host (хаб/флешка/клавиатура)"
+fi
+USBMENU
+chown "$U":"$U" "$H/.config/sxmo/userscripts/usb"; chmod +x "$H/.config/sxmo/userscripts/usb"
+
+echo "[3j] клавиатуры: экранная (wvkbd: русская раскладка, смайлы) и внешние (us+ru, CapsLock) — из sxmo-configs"
+PROF="$H/.config/sxmo/profile"
+if [ -f "$PROF" ] && ! grep -q '^export KEYBOARD_ARGS=' "$PROF"; then
+  printf '\n# Раскладки экранной клавиатуры (из sxmo-configs)\nexport KEYBOARD_ARGS="-l simple,cyrillic,special,emoji"\n' >> "$PROF"
+fi
+if ! grep -q 'grp:caps_toggle' "$SWAYCFG"; then
+  cat >> "$SWAYCFG" <<'EOK'
+
+# Bluetooth / USB клавиатуры: us+ru, CapsLock переключает (из sxmo-configs)
+input type:keyboard {
+    xkb_layout "us,ru"
+    xkb_options compose:rwin,grp:caps_toggle
+}
+EOK
+fi
+if ! grep -q 'Escape exec sxmo_multikey' "$SWAYCFG"; then
+  cat >> "$SWAYCFG" <<'EOP2'
+
+# Super+Escape = кнопка питания (как физическая: sxmo_multikey, 1/2/3 нажатия; работает и при блокировке)
+bindsym --locked $mod+Escape exec sxmo_multikey.sh powerbutton powerbutton_one powerbutton_two powerbutton_three
+EOP2
+fi
+if ! grep -q 'mod+Shift+p' "$SWAYCFG"; then
+  sed -i '/bindsym \$mod+p exec sxmo_appmenu.sh$/a\    bindsym $mod+Shift+p exec sxmo_appmenu.sh sys' "$SWAYCFG"
+fi
+if ! grep -q 'mod+f fullscreen' "$SWAYCFG"; then
+  cat >> "$SWAYCFG" <<'EOF3'
+
+# Super+F = окно на весь экран / обратно (STATE п.119)
+bindsym $mod+f fullscreen toggle
+EOF3
+fi
+if ! grep -q 'sxmo_rotate.sh rotright' "$SWAYCFG"; then
+  cat >> "$SWAYCFG" <<'EOF4'
+
+# Старт в альбомной ориентации (челка слева). Через 4 с — после портретных обоев (exec_always выше, sleep 2),
+# иначе они перебьют альбомные из sxmo_hook_rotate.sh. exec, не exec_always: reload не поворачивает заново.
+# Отключить: закомментировать строку.
+exec sh -c "sleep 4; sxmo_rotate.sh rotright"
+EOF4
+fi
+chown "$U":"$U" "$PROF" "$SWAYCFG" 2>/dev/null || true
+
+echo "[3k] язык внешней клавиатуры (EN/RU) в основном баре — только в альбомной ориентации (STATE п.127)"
+install -d -o "$U" -g "$U" "$H/.local/bin"
+cat > "$H/.local/bin/sxmo_kbd_lang.sh" <<'EOL'
+#!/bin/sh
+# Язык внешней клавиатуры (us,ru, CapsLock) в основном баре SXMO — только в альбомной ориентации (scripts/sxmo-setup, шаг 3k).
+# sxmo_kbd_lang.sh         — обновить один раз (зовёт sxmo_hook_rotate.sh)
+# sxmo_kbd_lang.sh watch   — слушать события ввода sway (раскладка, подключение/отключение клавиатуры)
+# Признак альбомной ориентации — файл sxmo.notch.hidden (его создаёт sxmo_hook_rotate.sh).
+MARK="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/sxmo.notch.hidden"
+update() {
+	# клавиатура с несколькими раскладками; кнопки телефона (одна раскладка) не считаем; $1 — устройство из события
+	L=$(swaymsg -t get_inputs 2>/dev/null | jq -r --arg id "${1:-}" \
+		'[.[] | select(.type == "keyboard" and ((.xkb_layout_names // []) | length) > 1)]
+		 | (map(select(.identifier == $id)) + .) | .[0].xkb_active_layout_name // empty')
+	if [ -e "$MARK" ] && [ -n "$L" ]; then
+		case "$L" in
+			English*) L=EN ;;
+			Russian*) L=RU ;;
+			*) L=$(printf '%s' "$L" | cut -c1-2 | tr '[:lower:]' '[:upper:]') ;;
+		esac
+		sxmo_status.sh add 98-kbdlang "$L"
+	else
+		sxmo_status.sh del 98-kbdlang 2>/dev/null
+	fi
+}
+if [ "$1" = watch ]; then
+	update
+	swaymsg -m -t subscribe '["input"]' | jq --unbuffered -r '.input.identifier' | while read -r id; do update "$id"; done
+else
+	update
+fi
+EOL
+chmod 755 "$H/.local/bin/sxmo_kbd_lang.sh"; chown "$U":"$U" "$H/.local/bin/sxmo_kbd_lang.sh"
+if ! grep -q 'sxmo_kbd_lang.sh watch' "$SWAYCFG"; then
+  cat >> "$SWAYCFG" <<EOF5
+
+# Язык внешней клавиатуры в баре в альбомной ориентации (STATE п.127); юнит — чтобы reload не плодил копии
+exec_always sh -c "systemctl --user stop sxmo-kbd-lang; exec systemd-run --user --collect --unit=sxmo-kbd-lang -E WAYLAND_DISPLAY -E XDG_RUNTIME_DIR -E SWAYSOCK -E PATH $H/.local/bin/sxmo_kbd_lang.sh watch"
+EOF5
+fi
+chown "$U":"$U" "$SWAYCFG" 2>/dev/null || true
+
+echo "[6/6] перезапуск sxmo.service и пользовательских служб"
+if systemctl is-active --quiet sxmo; then
+  systemctl restart sxmo; sleep 10
+  UID_N="$(id -u "$U")"
+  runuser -u "$U" -- env XDG_RUNTIME_DIR="/run/user/$UID_N" sh -c '
+    systemctl --user reset-failed 2>/dev/null
+    systemctl --user restart sxmo_desktop_widget sxmo_wob sxmo_notificationmonitor sxmo_menumode_toggler sxmo_networkmonitor sxmo_battery_monitor sxmo_hook_lisgd 2>&1 | head -3
+    sleep 4
+    systemctl --user list-units --no-pager "sxmo*" | sed -n "2,9p"'
+  systemctl is-active sxmo
+else
+  echo "  sxmo не запущен (запуск пробой: systemctl stop greetd && systemctl start sxmo)"
+fi
+echo "Готово. Проверка: journalctl -u sxmo -b | grep -i deviceprofile"

@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Эмуляторы целиком: сборка на телефоне (в фоне) и пункты меню SXMO Scripts. См. extras/emulators/README.md.
+# Запуск с Мака при подключённом телефоне: extras/emulators/install
+# Сборка идёт ~40-90 мин в фоне, меню ставится сразу после запуска, а эмуляторы заработают, когда ~/logs/emulators-build.status = FINISHED.
+set -euo pipefail
+D="$(cd "$(dirname "$0")" && pwd)"
+"$D/build-emulators.sh"   # сначала: проверит ROM и запустит сборку в фоне
+"$D/emulators-install"

@@ -1,0 +1,15 @@
+#!/bin/sh
+# На телефоне: разбор dmesg после hot-plug. Использование: typec-analyze <uptime_с_метки>
+T0=${1:-0}
+dmesg | grep -v audit | awk -F'[][]' -v t0="$T0" '{t=$2+0; if (t>=t0) print}' > /var/tmp/da.txt
+c() { grep -c "$1" /var/tmp/da.txt; }
+echo "xhci старты:     $(c 'new USB bus registered, assigned bus number 1')"
+echo "хаб VIA:         $(c 'usb 1-1: new high-speed')"
+echo "клавиатура:      $(c 'usb 1-1.1: new low-speed')"
+echo "флешка (1-1.2):  $(c 'usb 1-1.2: new high-speed')"
+echo "Ethernet(1-1.3): $(c 'usb 1-1.3: new high-speed')"
+echo "SCSI attached:   $(c 'Attached SCSI removable')"
+echo "ошибки:"; grep -E 'error -71|unable to enumerate|device descriptor|Cannot enable|over-current|Oops|WARNING|disabled by hub' /var/tmp/da.txt | cut -c1-140 | head -5
+lsusb | grep -v 'root hub'
+for p in /sys/class/power_supply/*; do echo "$(basename $p): $(cat $p/status) $(cat $p/current_now)"; done
+tail -1 /var/tmp/typec-poll.log

@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+# Иконки SXMO как в postmarketOS (Nerd Font вместо цветных эмодзи Mobian). Запускается с МАКА.
+#   scripts/sxmo-icons [хост=10.66.0.1]
+# Берёт из pmOS-образа images/pmos-v25.12-ebbg-4k/xiaomi-beryllium-v3-raw.img (SXMO 1.18.1):
+#   - шрифт DejaVuSansMNerdFont (Regular, Bold) → /usr/local/share/fonts/dejavu-sans-mono-nerd/ на телефоне
+#   - хук иконок sxmo_hook_icons.sh (226 иконок, глифы Nerd Font) + `icon_ena` из хука Mobian (нет в pmOS)
+#     → ~/.config/sxmo/hooks/sxmo_hook_icons.sh (пользовательский хук приоритетнее /usr/share/sxmo/default_hooks)
+# Файлы раздаются телефону по USB-сети (python http.server на адресе Мака в сети телефона), потом сервер гасится.
+# configversion в хуке приводится к версии Mobian-хука (иначе SXMO пометит файл .needs-migration и вернёт эмодзи).
+# Откат: на телефоне `rm ~/.config/sxmo/hooks/sxmo_hook_icons.sh` и перезапуск sxmo (шрифт можно оставить).
+# Нужны: 7zz (7-Zip), python3, expect, на телефоне wget. Пароль mobian — PHONE_PASS (по умолч. 1234).
+set -euo pipefail
+
+HOST="${1:-10.66.0.1}"
+PASS="${PHONE_PASS:-1234}"
+PORT=8765
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+IMG="$ROOT/images/pmos-v25.12-ebbg-4k/xiaomi-beryllium-v3-raw.img"
+[ -f "$IMG" ] || { echo "нет $IMG" >&2; exit 1; }
+command -v 7zz >/dev/null || { echo "нужен 7zz (brew install sevenzip)" >&2; exit 1; }
+
+TMP="$(mktemp -d)"; SERVER_PID=""
+cleanup() { [ -n "$SERVER_PID" ] && kill "$SERVER_PID" 2>/dev/null || true; rm -rf "$TMP"; }
+trap cleanup EXIT
+
+# IP Мака в той же сети, что и телефон (USB-гаджет 10.66.0.x)
+MAC_IP="$(ifconfig | awk '/inet 10\.66\.0\./{print $2; exit}')"
+[ -n "$MAC_IP" ] || { echo "у Мака нет адреса 10.66.0.x (телефон не подключён по USB?)" >&2; exit 1; }
+echo "[~30 сек, $(date +%H:%M)] достаю шрифт и хук из pmOS-образа (корень ext4 на смещении 488 МиБ)"
+dd if="$IMG" of="$TMP/root.ext4" bs=1048576 skip=488 2>/dev/null
+mkdir -p "$TMP/srv"
+7zz x -y -o"$TMP/x" "$TMP/root.ext4" \
+  "usr/share/fonts/dejavu-sans-mono-nerd/DejaVuSansMNerdFont-Regular.ttf" \
+  "usr/share/fonts/dejavu-sans-mono-nerd/DejaVuSansMNerdFont-Bold.ttf" \
+  "usr/share/sxmo/default_hooks/sxmo_hook_icons.sh" >/dev/null
+cp "$TMP"/x/usr/share/fonts/dejavu-sans-mono-nerd/*.ttf "$TMP/srv/"
+cp "$TMP/x/usr/share/sxmo/default_hooks/sxmo_hook_icons.sh" "$TMP/srv/sxmo_hook_icons.sh"
+rm -f "$TMP/root.ext4"
+
+# icon_ena (маркер «включено») есть в хуке Mobian (SXMO 1.12, там 🔘), но нет в pmOS (1.18) — ставим «●»
+cat >> "$TMP/srv/sxmo_hook_icons.sh" <<'EOF'
+
+# --- добавлено scripts/sxmo-icons: имя есть в хуке Mobian (SXMO 1.12), но нет в pmOS (1.18) ---
+icon_ena="●"
+EOF
+
+echo "[~5 сек, $(date +%H:%M)] раздаю файлы на $MAC_IP:$PORT"
+( cd "$TMP/srv" && exec python3 -m http.server "$PORT" --bind "$MAC_IP" >/dev/null 2>&1 ) &
+SERVER_PID=$!
+sleep 1
+
+# --- команда на телефоне через expect ---
+cat > "$TMP/ssh.exp" <<'EXP'
+#!/usr/bin/expect -f
+set timeout 300
+spawn ssh -o StrictHostKeyChecking=accept-new -o PubkeyAuthentication=no -o ConnectTimeout=10 mobian@[lindex $argv 0] [lindex $argv 1]
+expect {
+  "assword:" { send "$env(PHONE_PASS)\r"; exp_continue }
+  eof
+}
+EXP
+chmod +x "$TMP/ssh.exp"; export PHONE_PASS="$PASS"
+
+REMOTE='set -e
+D=/usr/local/share/fonts/dejavu-sans-mono-nerd
+echo '"'$PASS'"' | sudo -S -p "" mkdir -p $D
+for f in DejaVuSansMNerdFont-Regular.ttf DejaVuSansMNerdFont-Bold.ttf; do
+  wget -q -O /tmp/$f http://'"$MAC_IP:$PORT"'/$f
+  echo '"'$PASS'"' | sudo -S -p "" install -m 644 /tmp/$f $D/$f; rm -f /tmp/$f
+done
+echo '"'$PASS'"' | sudo -S -p "" fc-cache -f
+mkdir -p ~/.config/sxmo/hooks
+wget -q -O ~/.config/sxmo/hooks/sxmo_hook_icons.sh http://'"$MAC_IP:$PORT"'/sxmo_hook_icons.sh
+# SXMO отвергает пользовательский хук, у которого `# configversion:` не совпадает с версией пакета
+# (переименует в .needs-migration и вернёт эмодзи) → подставляем configversion из хука Mobian
+V=$(grep -m1 "^# configversion:" /usr/share/sxmo/default_hooks/sxmo_hook_icons.sh)
+sed -i "s|^# configversion:.*|$V|" ~/.config/sxmo/hooks/sxmo_hook_icons.sh
+rm -f ~/.config/sxmo/hooks/sxmo_hook_icons.sh.needs-migration
+chmod 755 ~/.config/sxmo/hooks/sxmo_hook_icons.sh
+echo "fonts: $(fc-list | grep -c -i "DejaVuSansM Nerd\|DejaVu Sans Mono Nerd\|DejaVuSansMNerd")  hook: $(grep -c "^icon_" ~/.config/sxmo/hooks/sxmo_hook_icons.sh) иконок"'
+echo "[~30 сек, $(date +%H:%M)] ставлю на телефон"
+"$TMP/ssh.exp" "$HOST" "$REMOTE" 2>&1 | sed '1,2d' | tr -d '\r'
+
+echo "[~20 сек, $(date +%H:%M)] перезапускаю SXMO (чтобы статус-бар и меню подхватили иконки)"
+"$TMP/ssh.exp" "$HOST" "echo '$PASS' | sudo -S -p '' systemctl restart sxmo; sleep 10; export XDG_RUNTIME_DIR=/run/user/\$(id -u); systemctl --user reset-failed 2>/dev/null; systemctl --user restart sxmo_desktop_widget sxmo_wob sxmo_notificationmonitor sxmo_menumode_toggler sxmo_networkmonitor sxmo_battery_monitor sxmo_hook_lisgd 2>&1 | head -2; systemctl is-active sxmo" 2>&1 | sed '1,2d' | tr -d '\r'
+echo "Готово ($(date +%H:%M))."

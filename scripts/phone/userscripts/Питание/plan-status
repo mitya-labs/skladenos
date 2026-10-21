@@ -1,0 +1,4 @@
+#!/bin/sh
+# title="Питание: текущий план"
+. sxmo_common.sh 2>/dev/null
+sxmo_notify_user.sh "План: $("$HOME/.local/bin/powerplan" get)"

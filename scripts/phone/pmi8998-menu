@@ -1,0 +1,12 @@
+#!/bin/sh
+# Пункт меню SXMO «Scripts»: вернуть Type-C/VBUS PMI8998 после apt (проверка + применение + уведомление).
+# Ставится в ~/.config/sxmo/userscripts/pmi8998 (scripts/pmi8998-install); нужны /usr/local/sbin/pmi8998-reapply и sudoers sxmo-pmi8998.
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" PATH="$HOME/.config/sxmo/hooks:$PATH"
+R=/usr/local/sbin/pmi8998-reapply
+OUT="$(sudo -n $R status 2>&1 </dev/null)"; RC=$?
+case "$RC" in
+  0) sxmo_notify_user.sh "PMI8998 Type-C: $OUT" ;;
+  1) sxmo_notify_user.sh "PMI8998: $OUT. Применяю (~1 мин), не выключайте"
+     OUT="$(sudo -n $R apply 2>&1 </dev/null | tail -1)"; sxmo_notify_user.sh "PMI8998: $OUT" ;;
+  *) sxmo_notify_user.sh "PMI8998: $OUT" ;;
+esac

@@ -1,0 +1,16 @@
+#!/bin/sh
+# Забирает статистику загрузок и журналы с телефона по SSH в logs/<дата>/.
+# Использование: scripts/collect [хост] [пользователь]
+HOST="${1:-172.16.42.1}"
+USER="${2:-mitya}"
+DEST="logs/$(date '+%F')"
+mkdir -p "$DEST"
+
+scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+	"$USER@$HOST:/var/log/boot-stats.csv" "$DEST/" 2>/dev/null || echo "boot-stats.csv не найден"
+
+ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$USER@$HOST" \
+	"sudo journalctl -b -1 --no-pager 2>/dev/null | head -300" > "$DEST/journal-prev.txt" 2>/dev/null
+
+echo "Собрано в $DEST:"
+ls -la "$DEST"

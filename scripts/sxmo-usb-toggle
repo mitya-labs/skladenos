@@ -1,0 +1,11 @@
+#!/bin/sh
+# Пункт меню SXMO «Scripts»: переключатель роли USB-порта host <-> device с уведомлением.
+# Ставится в ~/.config/sxmo/userscripts/usb (scripts/sxmo-setup шаг 3i); нужны /usr/local/bin/phone-usb и sudoers sxmo-phone-usb.
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" PATH="$HOME/.config/sxmo/hooks:$PATH"
+if sudo -n /usr/local/bin/phone-usb status 2>/dev/null | grep -q "^mode=host"; then
+	OUT="$(sudo -n /usr/local/bin/phone-usb device 2>&1 </dev/null)"
+	sxmo_notify_user.sh "USB: device (кабель к Маку, usb0 10.66.0.1)"
+else
+	OUT="$(sudo -n /usr/local/bin/phone-usb host 2>&1 </dev/null)"
+	sxmo_notify_user.sh "USB: host (хаб/флешка/клавиатура)"
+fi

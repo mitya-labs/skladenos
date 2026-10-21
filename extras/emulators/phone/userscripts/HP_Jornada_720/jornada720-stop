@@ -1,0 +1,6 @@
+#!/bin/sh
+# title="Jornada 720: stop (save state)"
+# SIGTERM to run.sh's j720-save.py saves the machine and quits QEMU;
+# without it (QEMU started some other way) just kill QEMU.
+pkill -TERM -f "python3 ./j720-save.py" ||
+    pkill -x qemu-system-arm || pkill -f "build/qemu-system-arm -M jornada720"

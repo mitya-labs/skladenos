@@ -1,0 +1,66 @@
+#!/bin/bash
+# Датчики Poco F1 (SLPI + hexagonrpcd + iio-sensor-proxy). Запускать НА ТЕЛЕФОНЕ от root:
+#   sudo bash slpi-install [--revert]
+# Что делает (STATE п.116):
+#  * ставит libssc-bin (ssccli) и hexagonrpcd, возвращает slpi.mbn из /root/fw-disabled в /lib/firmware/updates (в initramfs НЕ попадает:
+#    initramfs не пересобирается, SLPI стартует уже с rootfs юнитом slpi-start);
+#  * slpi-start.service: echo start в remoteproc «slpi» (по имени), stop при остановке;
+#  * drop-in hexagonrpcd: после slpi-start, перезапуск при падении;
+#  * drop-in iio-sensor-proxy: после hexagonrpcd;
+#  * владелец реестра датчиков (/var/lib/droid-juicer/sensors/sensors) — fastrpc (демон пишет калибровки).
+# Работает только на ядре 7.x (на 6.12 SLPI уходил в краш-цикл: qcom_scm assign_mem -22).
+set -euo pipefail
+FW=/lib/firmware/updates/qcom/sdm845/beryllium
+D=/var/lib/droid-juicer/sensors
+
+if [ "${1:-}" = "--revert" ]; then
+  systemctl disable --now hexagonrpcd hexagonrpcd-suspend hexagonrpcd-resume slpi-start 2>/dev/null || true
+  rm -f /etc/systemd/system/slpi-start.service
+  rm -rf /etc/systemd/system/hexagonrpcd.service.d /etc/systemd/system/iio-sensor-proxy.service.d
+  mkdir -p /root/fw-disabled; mv -f "$FW/slpi.mbn" /root/fw-disabled/ 2>/dev/null || true
+  systemctl daemon-reload; echo "откат выполнен"; exit 0
+fi
+
+DEBIAN_FRONTEND=noninteractive apt-get install -y libssc-bin hexagonrpcd
+[ -f "$FW/slpi.mbn" ] || cp /root/fw-disabled/slpi.mbn "$FW/slpi.mbn"
+chown -R fastrpc:fastrpc "$D/sensors"
+
+cat > /etc/systemd/system/slpi-start.service <<'EOF'
+[Unit]
+Description=Start SLPI (sensor DSP) remoteproc
+ConditionKernelVersion=>=7.0
+After=local-fs.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh -c 'for r in /sys/class/remoteproc/*; do if [ "$(cat $r/name)" = slpi ] && [ "$(cat $r/state)" != running ]; then echo start > $r/state; fi; done; true'
+ExecStop=/bin/sh -c 'for r in /sys/class/remoteproc/*; do [ "$(cat $r/name)" = slpi ] && echo stop > $r/state; done; true'
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+mkdir -p /etc/systemd/system/hexagonrpcd.service.d /etc/systemd/system/iio-sensor-proxy.service.d
+cat > /etc/systemd/system/hexagonrpcd.service.d/slpi.conf <<'EOF'
+[Unit]
+Requires=slpi-start.service
+After=slpi-start.service
+[Service]
+Restart=on-failure
+RestartSec=3
+# демон шумит «Tried to open … for writing» (запись реестра не поддерживается) — в журнал не пускаем
+StandardOutput=null
+StandardError=null
+EOF
+cat > /etc/systemd/system/iio-sensor-proxy.service.d/slpi.conf <<'EOF'
+[Unit]
+After=hexagonrpcd.service
+Wants=hexagonrpcd.service
+EOF
+systemctl daemon-reload
+systemctl enable slpi-start.service hexagonrpcd.service hexagonrpcd-suspend.service hexagonrpcd-resume.service
+systemctl restart slpi-start.service hexagonrpcd.service
+sleep 4
+systemctl restart iio-sensor-proxy.service
+systemctl --no-pager status slpi-start hexagonrpcd iio-sensor-proxy | grep -E "●|Active"

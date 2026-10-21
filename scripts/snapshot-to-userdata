@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+# Снимок (scripts/mobian-snapshot) → готовые к `fastboot flash` образы userdata и boot. Всё собирается в Docker (arm64).
+#
+#   scripts/snapshot-to-userdata [images/snapshots/mobian-<метка>]   # по умолчанию — самый свежий снимок
+#
+# Результат в <снимок>/flash/: userdata.simg.zst (sparse ext4 с тем же UUID, что в fstab снимка, сжат zstd -10;
+# несжатый ~9 ГБ, сжатый ≈ размер снимка), boot.img (с `rw`), SHA256SUMS (и сжатого, и распакованного), FLASH.txt.
+# Прошивка (стирает телефон!): scripts/snapshot-flash <снимок> — распакует образ, сверит sha256 и прошьёт.
+# Вручную: zstd -d userdata.simg.zst && fastboot flash boot boot.img && fastboot erase userdata && fastboot -S 100M flash userdata userdata.simg
+# Распаковка идёт во внутренней ФС контейнера (bind-mount с Мака регистронезависимый и теряет владельцев/xattrs).
+# Размер ФС = занятое*1.25 + 1 ГБ (минимум 8 ГБ); при первой загрузке x-systemd.growfs растягивает её на весь раздел.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+SNAP="${1:-$(ls -d "$ROOT"/images/snapshots/mobian-* | sort | tail -1)}"
+SNAP="$(cd "$SNAP" && pwd)"
+OUT="$SNAP/flash"
+mkdir -p "$OUT"
+
+TAR="$SNAP/snap.tar.zst"
+if [ ! -f "$TAR" ]; then   # снимок нарезан на части (scripts/snapshot-split)
+  [ -f "$SNAP/parts/snap.tar.zst.part00" ] || { echo "нет snap.tar.zst ни parts/ в $SNAP" >&2; exit 1; }
+  echo "склеиваю части (~1 мин)"; cat "$SNAP"/parts/snap.tar.zst.part* > "$SNAP/snap.tar.zst"
+fi
+echo "[~20 сек, $(date +%H:%M)] sha256 снимка"
+( cd "$SNAP" && shasum -a 256 -c snap.sha256 )
+
+UUID=$(awk '$2=="/" && $1 ~ /^UUID=/ {sub("UUID=","",$1); print $1}' "$SNAP/snap.meta.txt")
+[ -n "$UUID" ] || { echo "не нашёл UUID корня в snap.meta.txt" >&2; exit 1; }
+echo "UUID корня: $UUID"
+
+echo "[~30 сек, $(date +%H:%M)] boot.img из снимка"
+zstd -dc "$SNAP/snap.boot.img.zst" > "$OUT/boot.img"
+CMD=$(grep -a -o -E 'init=/sbin/init [a-z]+ quiet splash' "$OUT/boot.img" | head -1)
+echo "cmdline в boot: $CMD"
+case "$CMD" in *" rw "*) ;; *) echo "В boot НЕТ rw — будет бутлуп, не прошивать!" >&2; exit 1 ;; esac
+
+echo "[~10-15 мин, $(date +%H:%M) → ~$(date -v+15M +%H:%M)] Docker: распаковка, mke2fs -d, e2fsck, img2simg"
+docker run --rm --platform linux/arm64 \
+  -v "$SNAP:/snap:ro" -v "$OUT:/out" -e UUID="$UUID" debian:stable-slim bash -euxo pipefail -c '
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update -qq
+    apt-get install -y -qq --no-install-recommends zstd tar e2fsprogs android-sdk-libsparse-utils >/dev/null
+    mkdir /work && cd /work
+    zstd -dc /snap/snap.tar.zst | tar --xattrs --acls --numeric-owner -xpf - -C /work || [ $? -eq 1 ]
+    used_mb=$(du -sm --apparent-size /work | cut -f1)
+    size_mb=$(( used_mb * 5 / 4 + 1024 )); [ $size_mb -lt 8192 ] && size_mb=8192
+    echo "занято ${used_mb} МБ, ФС ${size_mb} МБ"
+    truncate -s ${size_mb}M /root.img
+    mke2fs -q -t ext4 -U "$UUID" -L rootfs -d /work /root.img
+    e2fsck -fn /root.img
+    img2simg /root.img /out/userdata.simg
+    ls -la /out
+  '
+
+echo "[~3-5 мин, $(date +%H:%M)] sha256 и сжатие userdata.simg (zstd -10)"
+( cd "$OUT" && shasum -a 256 boot.img userdata.simg > SHA256SUMS
+  zstd -q -T0 -10 -f --rm userdata.simg -o userdata.simg.zst
+  shasum -a 256 userdata.simg.zst >> SHA256SUMS; cat SHA256SUMS )
+cat > "$OUT/FLASH.txt" <<EOF
+Источник: $(basename "$SNAP"), UUID корня $UUID, cmdline: $CMD
+Проще всего: scripts/snapshot-flash $(basename "$SNAP")  (распакует, сверит, прошьёт; спросит подтверждение)
+Вручную (телефон в fastboot, Vol− + Power; НЕ пробрасывать в виртуалку; сотрёт userdata):
+  zstd -d userdata.simg.zst                 # ~9 ГБ на диске
+  shasum -a 256 -c SHA256SUMS
+  fastboot flash boot boot.img
+  fastboot erase userdata
+  fastboot -S 100M flash userdata userdata.simg
+  fastboot reboot
+  rm userdata.simg                          # сжатый .zst остаётся
+EOF
+echo "Готово ($(date +%H:%M)): $OUT"; du -sh "$OUT"/*

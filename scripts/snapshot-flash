@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# Прошивает снимок, подготовленный scripts/snapshot-to-userdata (<снимок>/flash/), через fastboot. СТИРАЕТ userdata телефона!
+#
+#   scripts/snapshot-flash [images/snapshots/mobian-<метка> | mobian-<метка>]   # по умолчанию — самый свежий с flash/
+#
+# Распаковывает userdata.simg.zst (нужно ~9 ГБ свободного места), сверяет SHA256SUMS, проверяет `rw` в boot.img,
+# спрашивает подтверждение, затем: flash boot, erase userdata, flash userdata (-S 100M), reboot. Распакованный образ удаляется.
+# Телефон: fastboot (Vol− + Power), кабель напрямую в Мак, не пробрасывать в виртуалку (STATE п.71: грабли fastboot reboot).
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+SNAP="${1:-$(ls -d "$ROOT"/images/snapshots/mobian-*/flash 2>/dev/null | sort | tail -1 | xargs dirname)}"
+[ -d "$SNAP" ] || SNAP="$ROOT/images/snapshots/$SNAP"
+F="$(cd "$SNAP/flash" && pwd)"
+cd "$F"
+[ -f boot.img ] || { echo "нет $F/boot.img" >&2; exit 1; }
+grep -a -q -E 'init=/sbin/init rw ' boot.img || { echo "в boot.img НЕТ rw — будет бутлуп, не прошиваю" >&2; exit 1; }
+
+CLEAN=""
+if [ ! -f userdata.simg ]; then
+  [ -f userdata.simg.zst ] || { echo "нет userdata.simg(.zst) в $F" >&2; exit 1; }
+  echo "[~2-3 мин, $(date +%H:%M)] распаковка userdata.simg.zst"
+  zstd -q -d -f userdata.simg.zst -o userdata.simg; CLEAN=1
+fi
+trap '[ -n "$CLEAN" ] && rm -f "$F/userdata.simg"' EXIT
+echo "[~1 мин, $(date +%H:%M)] sha256"
+shasum -a 256 -c SHA256SUMS --ignore-missing
+
+fastboot devices | grep -q fastboot || { echo "телефон не в fastboot (Vol− + Power)" >&2; exit 1; }
+read -r -p "Прошить $(basename "$SNAP") и СТЕРЕТЬ userdata телефона? Введите yes: " a
+[ "$a" = yes ] || { echo "отменено"; exit 1; }
+fastboot flash boot boot.img
+fastboot erase userdata
+echo "[~3-5 мин, $(date +%H:%M)] прошивка userdata"
+fastboot -S 100M flash userdata userdata.simg
+# fastboot reboot иногда виснет после «Rebooting» (STATE п.71) — с таймаутом
+fastboot reboot & P=$!; sleep 15; kill -9 $P 2>/dev/null && echo "fastboot reboot завис: pkill -9 fastboot и повторить fastboot reboot" || true
+echo "Готово ($(date +%H:%M)). Первая загрузка ~1–2 мин (ФС растягивается на весь раздел)."

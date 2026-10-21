@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Отключить DAMON_STAT насовсем (STATE п.138): в ядре Mobian 7.2 CONFIG_DAMON_STAT_ENABLED_DEFAULT=y, поток kdamond.0
+# постоянно ест 10–40% ядра (статистика доступа к памяти, нам не нужна). Параметр модуля пишется при загрузке через
+# /etc/tmpfiles.d/damon-stat-off.conf (без пересборки boot) и сразу — в текущую сессию.
+# Запуск с Мака: scripts/damon-stat-off [--revert|--status]
+set -euo pipefail
+R="$(cd "$(dirname "$0")/.." && pwd)"; P="$R/scripts/phone-ssh"
+export PHONE_HOST="${PHONE_HOST:-10.66.0.1}" PHONE_PASS="${PHONE_PASS:-1234}"
+q() { "$P" "$@" | { grep -v assword || true; }; }
+F=/etc/tmpfiles.d/damon-stat-off.conf
+PARAM=/sys/module/damon_stat/parameters/enabled
+STATUS="echo \"tmpfiles: \$(cat $F 2>/dev/null | grep -v '^#' || echo нет)\"; echo \"enabled: \$(sudo -n cat $PARAM 2>/dev/null || echo $PHONE_PASS | sudo -S -p '' cat $PARAM)\"; ps -eo pcpu,comm | grep kdamond || echo 'kdamond: нет'"
+case "${1:-}" in
+  --status) q "$STATUS" ;;
+  --revert)
+    q "echo $PHONE_PASS | sudo -S -p '' sh -c 'rm -f $F; echo Y > $PARAM'"
+    q "$STATUS" ;;
+  "")
+    q "echo $PHONE_PASS | sudo -S -p '' sh -c 'printf \"%s\\n\" \"# DAMON_STAT выключен (poco-f1-mainline scripts/damon-stat-off, STATE п.138)\" \"w $PARAM - - - - N\" > $F && echo N > $PARAM'"
+    q "$STATUS" ;;
+  *) echo "использование: $0 [--revert|--status]" >&2; exit 2 ;;
+esac

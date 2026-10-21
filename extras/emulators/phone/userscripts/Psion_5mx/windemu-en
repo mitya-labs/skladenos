@@ -1,0 +1,3 @@
+#!/bin/sh
+# title="WindEmu (Psion 5mx EN)"
+exec "$HOME/Developer/WindEmu/run-sway.sh" "$HOME/roms/5mx_eng.bin"

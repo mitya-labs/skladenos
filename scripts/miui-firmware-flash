@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+# Обновление ТОЛЬКО прошивок Poco F1 (beryllium) из MIUI V12.0.3.0.QEJMIXM (Global, Android 10)
+# по инструкции https://wiki.lineageos.org/devices/beryllium/fw_update/
+# boot / system / userdata НЕ трогаются (Mobian остаётся), шьются 16 разделов прошивки.
+#
+# Использование: scripts/miui-firmware-flash [--dry-run] [--yes] [--reboot]
+#   --dry-run  только показать команды (fastboot и телефон не нужны)
+#   --yes      не спрашивать подтверждение
+#   --reboot   в конце fastboot reboot
+#
+# Подготовка (уже сделана): images/miui/firmware-update/ ← из
+#   miui_POCOF1Global_V12.0.3.0.QEJMIXM_cf3fccffce_10.0.zip (MD5 cf3fccffcec70ec1cf9998f631965a7e)
+#   unzip -qq miui_*.zip "firmware-update/*"
+# Телефон: Power + Vol− до слова FASTBOOT; не пробрасывать в виртуалку; кабель в USB-A 2.0 или
+# хаб, если fastboot зависает; батарея заряжена; не прерывать.
+# После прошивки: перезагрузить в Mobian, затем scripts/mobian-refresh-firmware на телефоне.
+set -euo pipefail
+
+DIR="$(cd "$(dirname "$0")/.." && pwd)/images/miui/firmware-update"
+DRY=0; YES=0; REBOOT=0
+for a in "$@"; do
+  case "$a" in
+    --dry-run) DRY=1 ;;
+    --yes) YES=1 ;;
+    --reboot) REBOOT=1 ;;
+    *) echo "неизвестный аргумент: $a" >&2; exit 2 ;;
+  esac
+done
+
+# Порядок и имена разделов — как в инструкции LineageOS (суффикс _ab: оба слота)
+STEPS=(
+  "abl_ab abl.elf"
+  "aop_ab aop.img"
+  "bluetooth bluetooth.img"
+  "cmnlib_ab cmnlib.img"
+  "cmnlib64_ab cmnlib64.img"
+  "devcfg_ab devcfg.img"
+  "dsp dsp.img"
+  "hyp_ab hyp.img"
+  "keymaster_ab keymaster.img"
+  "logo logo.img"
+  "modem modem.img"
+  "qupfw_ab qupfw.img"
+  "storsec_ab storsec.img"
+  "tz_ab tz.img"
+  "xbl_ab xbl.img"
+  "xbl_config_ab xbl_config.img"
+)
+
+[ -d "$DIR" ] || { echo "нет $DIR (распакуйте firmware-update из miui_*.zip)" >&2; exit 1; }
+for s in "${STEPS[@]}"; do
+  f="${s#* }"
+  [ -f "$DIR/$f" ] || { echo "нет файла $DIR/$f" >&2; exit 1; }
+done
+
+if [ "$DRY" -eq 1 ]; then
+  echo "[dry-run] cd $DIR"
+  for s in "${STEPS[@]}"; do echo "fastboot flash ${s%% *} ${s#* }"; done
+  echo "fastboot reboot   # только с --reboot"
+  exit 0
+fi
+
+echo "[~5 сек] проверяю fastboot"
+fastboot devices | grep -q fastboot || { echo "телефон не в fastboot" >&2; exit 1; }
+product=$(fastboot getvar product 2>&1 | awk -F': ' '/^product/{print $2}')
+[ "$product" = "beryllium" ] || { echo "product=$product, ожидался beryllium" >&2; exit 1; }
+unlocked=$(fastboot getvar unlocked 2>&1 | awk -F': ' '/^unlocked/{print $2}')
+[ "$unlocked" = "yes" ] || { echo "загрузчик не разблокирован (unlocked=$unlocked)" >&2; exit 1; }
+
+if [ "$YES" -ne 1 ]; then
+  echo "Будут прошиты 16 разделов прошивки (abl, xbl, tz, hyp, modem, dsp ...). boot/userdata не трогаются."
+  echo "Прерывать нельзя. Продолжить? [yes/N]"
+  read -r ans
+  [ "$ans" = "yes" ] || { echo "отменено"; exit 1; }
+fi
+
+cd "$DIR"
+n=0; total=${#STEPS[@]}
+echo "[~1 мин] прошиваю $total разделов"
+for s in "${STEPS[@]}"; do
+  n=$((n + 1))
+  echo "($n/$total) fastboot flash ${s%% *} ${s#* }"
+  fastboot flash ${s%% *} ${s#* }
+done
+
+if [ "$REBOOT" -eq 1 ]; then
+  fastboot reboot
+else
+  echo "Готово. Перезагрузка: fastboot reboot"
+fi
+echo "Дальше (на телефоне после загрузки): scripts/mobian-refresh-firmware"

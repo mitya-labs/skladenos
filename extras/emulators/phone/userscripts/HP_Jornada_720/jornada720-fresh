@@ -1,0 +1,7 @@
+#!/bin/sh
+# title="Jornada 720: cold boot (forget saved state)"
+# QEMU в тайловом окне sway сначала рисует мелко; sxmo_qemu_resize.sh «пинает» окно (STATE п.111); окно уважает поля под челку и статус-бар
+"$HOME/Developer/qemu-jornada720/run.sh" --fresh &
+RUN=$!
+"$HOME/.local/bin/sxmo_qemu_resize.sh" --wait
+wait $RUN

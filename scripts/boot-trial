@@ -1,0 +1,25 @@
+#!/bin/sh
+# Один пробный запуск: fastboot boot из памяти (ничего не прошивается), потом опрос сети.
+# Использование: scripts/boot-trial [образ] [секунд_ожидания]
+# Результат (по сети): OK (порт 22 открылся), INITRAMFS (открыт только 23), NONET (тишина).
+# BLACK/HANG различаются по экрану, их дописывает человек в колонку screen.
+IMG="${1:-images/pmos-v25.12-ebbg-4k/boot.img}"
+WAIT="${2:-240}"
+IP=172.16.42.1
+LOG="$(dirname "$0")/../logs/boot-trials.csv"
+[ -f "$LOG" ] || echo "time,image,result,seconds,screen" > "$LOG"
+
+echo "Жду телефон в fastboot (Power + Vol-)..."
+until fastboot devices 2>/dev/null | grep -q fastboot; do sleep 1; done
+echo "fastboot boot $IMG"
+fastboot boot "$IMG" || { echo "fastboot boot failed"; exit 1; }
+
+result=NONET; SECONDS=0
+while [ "$SECONDS" -lt "$WAIT" ]; do
+  if nc -z -w 2 $IP 22 >/dev/null 2>&1; then result=OK; break; fi
+  if nc -z -w 2 $IP 23 >/dev/null 2>&1; then result=INITRAMFS; fi
+  sleep 3
+done
+t=$SECONDS
+echo "result=$result after ${t}s"
+echo "$(date '+%F %T'),$(basename "$IMG"),$result,$t," >> "$LOG"

@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# Что стартует на загрузке: SXMO или Phosh (greetd+phrog). Запускать НА ТЕЛЕФОНЕ от root:
+#   scp scripts/sxmo-default mobian@mobian.local:/tmp/ && ssh -t mobian@mobian.local sudo bash /tmp/sxmo-default on|off|status
+#   on     SXMO на загрузку (greetd и phosh.service выключены, sxmo.service включён)
+#   off    Phosh на загрузку (как по умолчанию в Mobian): sxmo.service выключен, greetd и phosh.service включены
+#   status показать, что включено и что сейчас запущено
+# Они взаимоисключающие: sxmo.service (TTYPath=/dev/tty7), greetd (vt = 7) и phosh.service (ExecStartPost=chvt 7) занимают VT7.
+# Изменение вступает в силу после перезагрузки; на работающей системе ничего не останавливается
+# (чтобы сразу переключиться: systemctl stop greetd && systemctl start sxmo, и наоборот).
+# Если после `on` на экране ничего нет: по SSH (Wi-Fi или USB-кабель 10.66.0.1) `sudo bash /tmp/sxmo-default off && sudo reboot`.
+set -euo pipefail
+[ "$(id -u)" -eq 0 ] || { echo "нужен root (sudo)" >&2; exit 1; }
+
+show() {
+  echo "greetd:  $(systemctl is-enabled greetd 2>&1 | head -1) / $(systemctl is-active greetd 2>&1 | head -1)"
+  echo "phosh:   $(systemctl is-enabled phosh.service 2>&1 | head -1) / $(systemctl is-active phosh.service 2>&1 | head -1)  (phosh.service — отдельная «Development service», стартует одновременно с SXMO и отбирает VT7)"
+  echo "sxmo:    $(systemctl is-enabled sxmo 2>&1 | head -1) / $(systemctl is-active sxmo 2>&1 | head -1)"
+  echo "default target: $(systemctl get-default)"
+}
+
+DROPIN=/etc/systemd/system/sxmo.service.d/10-boot.conf
+
+case "${1:-status}" in
+  on)
+    # sxmo.service из пакета рассчитан на запуск при уже активном VT7 (так бывает после greetd/Phosh). На загрузке активна другая
+    # консоль → сессия logind не становится активной → wlroots «Timeout waiting session to become active» → sway не стартует,
+    # OnFailure отдаёт экран getty (login). Лечим: tty-force (tty7 ещё занят plymouth/getty) и переключение на VT7 перед стартом.
+    mkdir -p "$(dirname "$DROPIN")"
+    cat > "$DROPIN" <<'EOC'
+[Service]
+StandardInput=tty-force
+ExecStartPre=-+/usr/bin/plymouth quit
+ExecStartPre=+/usr/bin/chvt 7
+EOC
+    rm -f /etc/systemd/system/sxmo.service.d/10-tty-force.conf
+    systemctl daemon-reload
+    systemctl disable greetd phosh.service
+    systemctl enable sxmo
+    echo "SXMO будет стартовать на загрузке. Перезагрузка: sudo reboot"
+    show ;;
+  off)
+    rm -f "$DROPIN" /etc/systemd/system/sxmo.service.d/10-tty-force.conf
+    systemctl daemon-reload
+    systemctl disable sxmo
+    systemctl enable greetd phosh.service
+    echo "Phosh будет стартовать на загрузке. Перезагрузка: sudo reboot"
+    show ;;
+  status) show ;;
+  *) echo "использование: sxmo-default on|off|status" >&2; exit 2 ;;
+esac

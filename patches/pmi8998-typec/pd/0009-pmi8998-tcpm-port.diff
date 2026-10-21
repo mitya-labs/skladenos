@@ -1,0 +1,894 @@
+diff -ruN a/drivers/usb/typec/tcpm/qcom/Makefile b/drivers/usb/typec/tcpm/qcom/Makefile
+--- a/drivers/usb/typec/tcpm/qcom/Makefile
++++ b/drivers/usb/typec/tcpm/qcom/Makefile
+@@ -3,5 +3,6 @@
+ obj-$(CONFIG_TYPEC_QCOM_PMIC)		+= qcom_pmic_tcpm.o
+ qcom_pmic_tcpm-y			+= qcom_pmic_typec.o \
+ 					   qcom_pmic_typec_port.o \
++					   qcom_pmic_typec_port_pmi8998.o \
+ 					   qcom_pmic_typec_pdphy.o \
+ 					   qcom_pmic_typec_pdphy_stub.o \
+diff -ruN a/drivers/usb/typec/tcpm/qcom/qcom_pmic_typec_pdphy.c b/drivers/usb/typec/tcpm/qcom/qcom_pmic_typec_pdphy.c
+--- a/drivers/usb/typec/tcpm/qcom/qcom_pmic_typec_pdphy.c
++++ b/drivers/usb/typec/tcpm/qcom/qcom_pmic_typec_pdphy.c
+@@ -59,6 +59,9 @@
+ 
+ #define USB_PDPHY_RX_BUFFER_REG		0x80
+ 
++#define USB_PDPHY_SEC_ACCESS_REG	0xD0
++#define USB_PDPHY_TRIM_3_REG		0xF3
++
+ /* VDD regulator */
+ #define VDD_PDPHY_VOL_MIN		2800000	/* uV */
+ #define VDD_PDPHY_VOL_MAX		3300000	/* uV */
+@@ -100,6 +103,13 @@
+ 	struct work_struct		reset_work;
+ 	struct work_struct		receive_work;
+ 	struct regulator		*vdd_pdphy;
++	unsigned int			spec_rev;	/* Revision in MSG_CONFIG (used for GoodCRC) */
++
++	/* Soft_Reset loop breaker, see qcom_pmic_typec_pdphy_check_loop() */
++	bool				pd_blocked;
++	unsigned int			sr_loops;
++	unsigned long			ps_rdy_jiffies;
++	unsigned long			sr_jiffies;
+ 	spinlock_t			lock;		/* Register atomicity */
+ };
+ 
+@@ -131,6 +141,7 @@
+ 
+ 	ret = regmap_write(pmic_typec_pdphy->regmap,
+ 			   pmic_typec_pdphy->base + USB_PDPHY_FRAME_FILTER_REG,
++			   pmic_typec_pdphy->pd_blocked ? 0 :
+ 			   FRAME_FILTER_EN_SOP | FRAME_FILTER_EN_HARD_RESET);
+ 	if (ret)
+ 		dev_err(dev, "pd_reset_off error\n");
+@@ -297,6 +308,32 @@
+ 	return ret;
+ }
+ 
++/*
++ * The PHY answers with GoodCRC on its own, using the revision from
++ * MSG_CONFIG. Keep it in sync with the negotiated revision, otherwise a
++ * PD 3.0 partner gets PD 2.0 GoodCRCs after the contract.
++ */
++static void qcom_pmic_typec_pdphy_update_spec_rev(struct pmic_typec_pdphy *pmic_typec_pdphy,
++						  unsigned int rev)
++{
++	unsigned long flags;
++	int ret;
++
++	if (rev == pmic_typec_pdphy->spec_rev)
++		return;
++
++	spin_lock_irqsave(&pmic_typec_pdphy->lock, flags);
++	ret = regmap_update_bits(pmic_typec_pdphy->regmap,
++				 pmic_typec_pdphy->base + USB_PDPHY_MSG_CONFIG_REG,
++				 MSG_CONFIG_SPEC_REV_MASK, rev);
++	spin_unlock_irqrestore(&pmic_typec_pdphy->lock, flags);
++
++	if (!ret)
++		pmic_typec_pdphy->spec_rev = rev;
++
++	dev_dbg(pmic_typec_pdphy->dev, "spec_rev %u: %d\n", rev, ret);
++}
++
+ static int qcom_pmic_typec_pdphy_pd_transmit(struct tcpc_dev *tcpc,
+ 					     enum tcpm_transmit_type type,
+ 					     const struct pd_message *msg,
+@@ -307,6 +344,11 @@
+ 	struct device *dev = pmic_typec_pdphy->dev;
+ 	int ret;
+ 
++	if (pmic_typec_pdphy->pd_blocked)
++		return -EIO;
++
++	qcom_pmic_typec_pdphy_update_spec_rev(pmic_typec_pdphy, negotiated_rev);
++
+ 	if (msg) {
+ 		ret = qcom_pmic_typec_pdphy_pd_transmit_payload(pmic_typec_pdphy,
+ 								type, msg,
+@@ -323,6 +365,84 @@
+ 	return ret;
+ }
+ 
++#define SR_LOOP_WINDOW_MS	60	/* PS_RDY -> Soft_Reset */
++#define SR_LOOP_MAX		3
++
++/*
++ * Some sources (seen with an Apple Mac) send a message after PS_RDY that
++ * this PHY never receives, so they Soft_Reset ~36 ms after every PS_RDY,
++ * forever: ~12 renegotiations/s, each one a power_supply uevent. After a
++ * few such loops stop doing PD with this partner: no GoodCRC, no TX. Both
++ * sides then fall back to plain Type-C current until the cable is pulled.
++ * Returns true if the message must be dropped.
++ */
++static bool qcom_pmic_typec_pdphy_check_loop(struct pmic_typec_pdphy *pmic_typec_pdphy,
++					     const struct pd_message *msg)
++{
++	unsigned int type = pd_header_type_le(msg->header);
++	bool ctrl = !pd_header_cnt_le(msg->header);
++	unsigned long now = jiffies;
++	unsigned long flags;
++
++	if (pmic_typec_pdphy->pd_blocked)
++		return true;
++
++	if (ctrl && type == PD_CTRL_PS_RDY) {
++		pmic_typec_pdphy->ps_rdy_jiffies = now;
++		return false;
++	}
++
++	if (ctrl && type == PD_CTRL_SOFT_RESET) {
++		if (time_before(now, pmic_typec_pdphy->ps_rdy_jiffies +
++				msecs_to_jiffies(SR_LOOP_WINDOW_MS)) &&
++		    (!pmic_typec_pdphy->sr_loops ||
++		     time_before(now, pmic_typec_pdphy->sr_jiffies + HZ)))
++			pmic_typec_pdphy->sr_loops++;
++		else
++			pmic_typec_pdphy->sr_loops = 0;
++		pmic_typec_pdphy->sr_jiffies = now;
++
++		if (pmic_typec_pdphy->sr_loops < SR_LOOP_MAX)
++			return false;
++
++		spin_lock_irqsave(&pmic_typec_pdphy->lock, flags);
++		pmic_typec_pdphy->pd_blocked = true;
++		regmap_write(pmic_typec_pdphy->regmap,
++			     pmic_typec_pdphy->base + USB_PDPHY_FRAME_FILTER_REG, 0);
++		spin_unlock_irqrestore(&pmic_typec_pdphy->lock, flags);
++
++		dev_warn(pmic_typec_pdphy->dev,
++			 "Soft_Reset loop after PS_RDY, PD off until detach\n");
++		return true;
++	}
++
++	/* Negotiation traffic keeps the count, anything else means PD works */
++	if (!(ctrl && type == PD_CTRL_ACCEPT) &&
++	    !(!ctrl && type == PD_DATA_SOURCE_CAP))
++		pmic_typec_pdphy->sr_loops = 0;
++
++	return false;
++}
++
++static void qcom_pmic_typec_pdphy_cc_detached(struct pmic_typec *tcpm)
++{
++	struct pmic_typec_pdphy *pmic_typec_pdphy = tcpm->pmic_typec_pdphy;
++	unsigned long flags;
++
++	pmic_typec_pdphy->sr_loops = 0;
++	if (!pmic_typec_pdphy->pd_blocked)
++		return;
++
++	spin_lock_irqsave(&pmic_typec_pdphy->lock, flags);
++	pmic_typec_pdphy->pd_blocked = false;
++	regmap_write(pmic_typec_pdphy->regmap,
++		     pmic_typec_pdphy->base + USB_PDPHY_FRAME_FILTER_REG,
++		     FRAME_FILTER_EN_SOP | FRAME_FILTER_EN_HARD_RESET);
++	spin_unlock_irqrestore(&pmic_typec_pdphy->lock, flags);
++
++	dev_info(pmic_typec_pdphy->dev, "partner detached, PD back on\n");
++}
++
+ static void qcom_pmic_typec_pdphy_pd_receive(struct pmic_typec_pdphy *pmic_typec_pdphy)
+ {
+ 	struct device *dev = pmic_typec_pdphy->dev;
+@@ -365,6 +485,9 @@
+ done:
+ 	spin_unlock_irqrestore(&pmic_typec_pdphy->lock, flags);
+ 
++	if (!ret && qcom_pmic_typec_pdphy_check_loop(pmic_typec_pdphy, &msg))
++		return;
++
+ 	if (!ret) {
+ 		dev_vdbg(dev, "pd_receive: handing %d bytes to tcpm\n", size);
+ 		tcpm_pd_receive(pmic_typec_pdphy->tcpm_port, &msg, TCPC_TX_SOP);
+@@ -461,6 +584,18 @@
+ 				 MSG_CONFIG_SPEC_REV_MASK, PD_REV20);
+ 	if (ret)
+ 		goto done;
++	pmic_typec_pdphy->spec_rev = PD_REV20;
++
++	/* Receiver trim, as in the downstream qpnp-pdphy driver for PMI8998 */
++	ret = regmap_write(pmic_typec_pdphy->regmap,
++			   pmic_typec_pdphy->base + USB_PDPHY_SEC_ACCESS_REG, 0xa5);
++	if (ret)
++		goto done;
++
++	ret = regmap_write(pmic_typec_pdphy->regmap,
++			   pmic_typec_pdphy->base + USB_PDPHY_TRIM_3_REG, 0x2);
++	if (ret)
++		goto done;
+ 
+ 	ret = regmap_write(pmic_typec_pdphy->regmap,
+ 			   pmic_typec_pdphy->base + USB_PDPHY_EN_CONTROL_REG, 0);
+@@ -610,6 +745,7 @@
+ 	tcpm->tcpc.pd_transmit = qcom_pmic_typec_pdphy_pd_transmit;
+ 
+ 	tcpm->pdphy_start = qcom_pmic_typec_pdphy_start;
++	tcpm->pdphy_cc_detached = qcom_pmic_typec_pdphy_cc_detached;
+ 	tcpm->pdphy_stop = qcom_pmic_typec_pdphy_stop;
+ 
+ 	return 0;
+diff -ruN a/drivers/usb/typec/tcpm/qcom/qcom_pmic_typec_port_pmi8998.c b/drivers/usb/typec/tcpm/qcom/qcom_pmic_typec_port_pmi8998.c
+--- a/drivers/usb/typec/tcpm/qcom/qcom_pmic_typec_port_pmi8998.c
++++ b/drivers/usb/typec/tcpm/qcom/qcom_pmic_typec_port_pmi8998.c
+@@ -0,0 +1,609 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * Qualcomm PMI8998 Type-C port backend for the qcom_pmic_typec TCPM driver.
++ *
++ * On PMI8998 the Type-C block lives inside the SMB2 USBIN peripheral
++ * (0x1300) and has a different register layout from PM8150B: status in
++ * TYPE_C_STATUS_1..5, role/VCONN commands in TYPE_C_INTRPT_ENB_SOFTWARE_CTRL
++ * and a single "type-c-change" interrupt. The PD PHY (0x1700) is the same
++ * as on PM8150B and is handled by qcom_pmic_typec_pdphy.c.
++ *
++ * Like the PM8150B backend, the hardware state machine does CC toggling
++ * and debounce on its own; TCPM is fed with the resolved CC state.
++ */
++
++#include <linux/bits.h>
++#include <linux/delay.h>
++#include <linux/err.h>
++#include <linux/interrupt.h>
++#include <linux/kernel.h>
++#include <linux/of.h>
++#include <linux/platform_device.h>
++#include <linux/property.h>
++#include <linux/regmap.h>
++#include <linux/regulator/consumer.h>
++#include <linux/slab.h>
++#include <linux/string_choices.h>
++#include <linux/usb/tcpm.h>
++#include <linux/workqueue.h>
++
++#include "qcom_pmic_typec.h"
++#include "qcom_pmic_typec_port.h"
++
++#define TYPE_C_STATUS_1_REG			0x0b
++#define UFP_TYPEC_RDSTD				BIT(7)
++#define UFP_TYPEC_RD1P5				BIT(6)
++#define UFP_TYPEC_RD3P0				BIT(5)
++
++#define TYPE_C_STATUS_2_REG			0x0c
++#define DFP_RD_OPEN				BIT(3)
++#define DFP_RD_RA_VCONN				BIT(2)
++#define DFP_RD_RD				BIT(1)
++#define DFP_RA_RA				BIT(0)
++#define DFP_TYPEC_MASK				GENMASK(3, 0)
++
++#define TYPE_C_STATUS_4_REG			0x0e
++#define UFP_DFP_MODE_STATUS			BIT(7)
++#define TYPEC_VBUS_STATUS			BIT(6)
++#define TYPEC_VBUS_ERROR_STATUS			BIT(5)
++#define TYPEC_DEBOUNCE_DONE_STATUS		BIT(4)
++#define CC_ORIENTATION				BIT(1)
++#define CC_ATTACHED				BIT(0)
++
++#define TYPE_C_CFG_2_REG			0x59
++#define TYPE_C_DFP_CURRSRC_MODE			BIT(7)
++#define EN_80UA_180UA_CUR_SOURCE		BIT(0)
++
++#define TYPE_C_INTRPT_ENB_SOFTWARE_CTRL_REG	0x68
++#define VCONN_EN_ORIENTATION			BIT(6)
++#define VCONN_EN_SRC				BIT(4)
++#define VCONN_EN_VALUE				BIT(3)
++#define TYPEC_POWER_ROLE_CMD_MASK		GENMASK(2, 0)
++#define UFP_EN_CMD				BIT(2)
++#define DFP_EN_CMD				BIT(1)
++#define TYPEC_DISABLE_CMD			BIT(0)
++
++/* Charger input (USBIN) registers in the same 0x1300 peripheral */
++#define CMD_APSD_REG				0x41
++#define ICL_OVERRIDE_BIT			BIT(1)
++
++#define USBIN_ICL_OPTIONS_REG			0x66
++#define CFG_USB3P0_SEL_BIT			BIT(2)
++#define USB51_MODE_BIT				BIT(1)
++#define USBIN_MODE_CHG_BIT			BIT(0)
++
++#define USBIN_CURRENT_LIMIT_CFG_REG		0x70
++#define USBIN_CURRENT_STEP_MA			25
++#define USBIN_HC_MAX_MA				3000
++
++struct pmi8998_typec_port {
++	struct device			*dev;
++	struct tcpm_port		*tcpm_port;
++	struct regmap			*regmap;
++	u32				base;
++	int				irq;
++
++	struct regulator		*vdd_vbus;
++	bool				vbus_enabled;
++	struct mutex			vbus_lock;	/* VBUS state serialization */
++
++	bool				debouncing_cc;
++	struct delayed_work		cc_debounce_dwork;
++	struct delayed_work		cc_recheck_dwork;
++	unsigned long			cc_open_since;	/* 0 while attached */
++
++	struct mutex			icl_lock;	/* input current limit */
++	u32				icl_ma;
++	struct delayed_work		icl_dwork;
++
++	spinlock_t			lock;		/* Register atomicity */
++};
++
++static struct pmi8998_typec_port *to_port(struct tcpc_dev *tcpc)
++{
++	return (struct pmi8998_typec_port *)tcpc_to_tcpm(tcpc)->pmic_typec_port;
++}
++
++static void pmi8998_port_cc_debounce(struct work_struct *work)
++{
++	struct pmi8998_typec_port *port =
++		container_of(work, struct pmi8998_typec_port, cc_debounce_dwork.work);
++	unsigned long flags;
++
++	spin_lock_irqsave(&port->lock, flags);
++	port->debouncing_cc = false;
++	spin_unlock_irqrestore(&port->lock, flags);
++
++	/*
++	 * The ISR drops CC changes while debouncing, and restarting the state
++	 * machine on an already attached partner raises no new interrupt:
++	 * make TCPM re-read CC once the window is over.
++	 */
++	if (port->tcpm_port)
++		tcpm_cc_change(port->tcpm_port);
++}
++
++static void pmi8998_port_cc_recheck(struct work_struct *work)
++{
++	struct pmi8998_typec_port *port =
++		container_of(work, struct pmi8998_typec_port, cc_recheck_dwork.work);
++
++	if (port->tcpm_port)
++		tcpm_cc_change(port->tcpm_port);
++}
++
++static void pmi8998_port_set_cc_debounce(struct pmi8998_typec_port *port)
++{
++	port->debouncing_cc = true;
++	schedule_delayed_work(&port->cc_debounce_dwork, msecs_to_jiffies(2));
++}
++
++static irqreturn_t pmi8998_port_isr(int irq, void *dev_id)
++{
++	struct pmi8998_typec_port *port = dev_id;
++
++	/* One interrupt for everything: let TCPM re-read both CC and VBUS */
++	tcpm_vbus_change(port->tcpm_port);
++	if (!port->debouncing_cc)
++		tcpm_cc_change(port->tcpm_port);
++
++	return IRQ_HANDLED;
++}
++
++static int pmi8998_port_read_status4(struct pmi8998_typec_port *port,
++				     unsigned int *st4)
++{
++	return regmap_read(port->regmap, port->base + TYPE_C_STATUS_4_REG, st4);
++}
++
++static int pmi8998_port_get_vbus(struct tcpc_dev *tcpc)
++{
++	struct pmi8998_typec_port *port = to_port(tcpc);
++	unsigned int st4 = 0;
++	int ret;
++
++	mutex_lock(&port->vbus_lock);
++	if (pmi8998_port_read_status4(port, &st4))
++		st4 = 0;
++	ret = port->vbus_enabled || !!(st4 & TYPEC_VBUS_STATUS);
++	mutex_unlock(&port->vbus_lock);
++
++	return ret;
++}
++
++static int pmi8998_port_set_vbus(struct tcpc_dev *tcpc, bool on, bool sink)
++{
++	struct pmi8998_typec_port *port = to_port(tcpc);
++	unsigned int st4;
++	int ret = 0;
++
++	mutex_lock(&port->vbus_lock);
++	if (port->vbus_enabled == on)
++		goto done;
++
++	if (on)
++		ret = regulator_enable(port->vdd_vbus);
++	else
++		ret = regulator_disable(port->vdd_vbus);
++	if (ret)
++		goto done;
++
++	/* Wait for VBUS to settle; only a warning on timeout, like PM8150B */
++	ret = regmap_read_poll_timeout(port->regmap,
++				       port->base + TYPE_C_STATUS_4_REG, st4,
++				       !!(st4 & TYPEC_VBUS_STATUS) == on,
++				       100, 250000);
++	if (ret)
++		dev_warn(port->dev, "vbus %s settle timeout (st4 0x%02x)\n",
++			 str_on_off(on), st4);
++	ret = 0;
++
++	port->vbus_enabled = on;
++	if (port->tcpm_port)
++		tcpm_vbus_change(port->tcpm_port);
++
++done:
++	dev_dbg(port->dev, "set_vbus %s: %d\n", str_on_off(on), ret);
++	mutex_unlock(&port->vbus_lock);
++
++	return ret;
++}
++
++/*
++ * APSD does not run while we are host (D+/D- belong to USB), so the
++ * charger stays in USB51 500 mA mode even with a 3 A Rp or PD contract.
++ * Like the downstream driver, switch to high-current mode and override
++ * the APSD result with the limit negotiated by TCPM.
++ */
++static int pmi8998_port_apply_icl(struct pmi8998_typec_port *port)
++{
++	u32 ma = port->icl_ma;
++	int ret;
++
++	if (ma > 500) {
++		ma = min_t(u32, ma, USBIN_HC_MAX_MA);
++		ret = regmap_write(port->regmap,
++				   port->base + USBIN_CURRENT_LIMIT_CFG_REG,
++				   ma / USBIN_CURRENT_STEP_MA);
++		if (!ret)
++			ret = regmap_update_bits(port->regmap,
++						 port->base + USBIN_ICL_OPTIONS_REG,
++						 CFG_USB3P0_SEL_BIT | USB51_MODE_BIT |
++						 USBIN_MODE_CHG_BIT, USBIN_MODE_CHG_BIT);
++		if (!ret)
++			ret = regmap_update_bits(port->regmap,
++						 port->base + CMD_APSD_REG,
++						 ICL_OVERRIDE_BIT, ICL_OVERRIDE_BIT);
++	} else {
++		/* Back to USB 2.0 500 mA, let APSD decide again */
++		ret = regmap_update_bits(port->regmap,
++					 port->base + USBIN_ICL_OPTIONS_REG,
++					 CFG_USB3P0_SEL_BIT | USB51_MODE_BIT |
++					 USBIN_MODE_CHG_BIT, USB51_MODE_BIT);
++		if (!ret)
++			ret = regmap_update_bits(port->regmap,
++						 port->base + CMD_APSD_REG,
++						 ICL_OVERRIDE_BIT, 0);
++	}
++
++	dev_dbg(port->dev, "icl %u mA: %d\n", ma, ret);
++
++	return ret;
++}
++
++static void pmi8998_port_icl_work(struct work_struct *work)
++{
++	struct pmi8998_typec_port *port =
++		container_of(work, struct pmi8998_typec_port, icl_dwork.work);
++
++	mutex_lock(&port->icl_lock);
++	pmi8998_port_apply_icl(port);
++	mutex_unlock(&port->icl_lock);
++}
++
++static int pmi8998_port_set_current_limit(struct tcpc_dev *tcpc, u32 max_ma,
++					  u32 mv)
++{
++	struct pmi8998_typec_port *port = to_port(tcpc);
++	int ret;
++
++	mutex_lock(&port->icl_lock);
++	port->icl_ma = max_ma;
++	ret = pmi8998_port_apply_icl(port);
++	mutex_unlock(&port->icl_lock);
++
++	/* qcom_smbx rewrites the limit from APSD ~1.5 s after plug-in */
++	if (max_ma > 500)
++		mod_delayed_work(system_dfl_wq, &port->icl_dwork,
++				 msecs_to_jiffies(2500));
++
++	return ret;
++}
++
++static int pmi8998_port_get_cc(struct tcpc_dev *tcpc,
++			       enum typec_cc_status *cc1,
++			       enum typec_cc_status *cc2)
++{
++	struct pmi8998_typec_port *port = to_port(tcpc);
++	unsigned int st4, val;
++	enum typec_cc_status cc;
++	int ret;
++
++	*cc1 = TYPEC_CC_OPEN;
++	*cc2 = TYPEC_CC_OPEN;
++
++	ret = pmi8998_port_read_status4(port, &st4);
++	if (ret)
++		return ret;
++
++	if (port->debouncing_cc)
++		return -EBUSY;
++
++	if (!(st4 & CC_ATTACHED))
++		goto done;
++
++	/* No interrupt is guaranteed when debounce completes: poll for it */
++	if (!(st4 & TYPEC_DEBOUNCE_DONE_STATUS)) {
++		mod_delayed_work(system_dfl_wq, &port->cc_recheck_dwork,
++				 msecs_to_jiffies(50));
++		goto done;
++	}
++
++	if (st4 & UFP_DFP_MODE_STATUS) {
++		/* We are DFP (source): what does the partner present? */
++		ret = regmap_read(port->regmap,
++				  port->base + TYPE_C_STATUS_2_REG, &val);
++		if (ret)
++			return ret;
++
++		switch (val & DFP_TYPEC_MASK) {
++		case DFP_RA_RA:
++			*cc1 = TYPEC_CC_RA;
++			*cc2 = TYPEC_CC_RA;
++			goto done;
++		case DFP_RD_RA_VCONN:
++			/* Rd on the active CC, Ra (cable) on the other one */
++			if (st4 & CC_ORIENTATION) {
++				*cc1 = TYPEC_CC_RA;
++				*cc2 = TYPEC_CC_RD;
++			} else {
++				*cc1 = TYPEC_CC_RD;
++				*cc2 = TYPEC_CC_RA;
++			}
++			goto done;
++		case DFP_RD_OPEN:
++		case DFP_RD_RD:
++			cc = TYPEC_CC_RD;
++			break;
++		default:
++			dev_warn(port->dev, "unexpected dfp status %02x\n", val);
++			cc = TYPEC_CC_RD;
++			break;
++		}
++	} else {
++		/* We are UFP (sink): Rp advertised by the source */
++		ret = regmap_read(port->regmap,
++				  port->base + TYPE_C_STATUS_1_REG, &val);
++		if (ret)
++			return ret;
++
++		if (val & UFP_TYPEC_RD3P0)
++			cc = TYPEC_CC_RP_3_0;
++		else if (val & UFP_TYPEC_RD1P5)
++			cc = TYPEC_CC_RP_1_5;
++		else
++			cc = TYPEC_CC_RP_DEF;
++	}
++
++	if (st4 & CC_ORIENTATION)
++		*cc2 = cc;
++	else
++		*cc1 = cc;
++
++done:
++	/*
++	 * Tell the PHY about a real unplug. Restarting the toggle state
++	 * machine or a hard reset makes CC look open for a short while;
++	 * only an absence longer than 3 s counts.
++	 */
++	if (*cc1 == TYPEC_CC_OPEN && *cc2 == TYPEC_CC_OPEN) {
++		if (!port->cc_open_since)
++			port->cc_open_since = jiffies ?: 1;
++	} else if (port->cc_open_since) {
++		struct pmic_typec *tcpm = tcpc_to_tcpm(tcpc);
++
++		if (time_after(jiffies, port->cc_open_since + 3 * HZ) &&
++		    tcpm->pdphy_cc_detached)
++			tcpm->pdphy_cc_detached(tcpm);
++		port->cc_open_since = 0;
++	}
++
++	dev_dbg(port->dev, "get_cc: st4 %02x cc1 %d cc2 %d\n", st4, *cc1, *cc2);
++
++	return 0;
++}
++
++static int pmi8998_port_set_cc(struct tcpc_dev *tcpc, enum typec_cc_status cc)
++{
++	struct pmi8998_typec_port *port = to_port(tcpc);
++	unsigned long flags;
++	int rp, ret = 0;
++
++	/*
++	 * The hardware state machine owns Rp/Rd; only the advertised source
++	 * current can be chosen here.
++	 */
++	switch (cc) {
++	case TYPEC_CC_RP_3_0:
++		rp = TYPE_C_DFP_CURRSRC_MODE;
++		break;
++	case TYPEC_CC_RP_1_5:
++		rp = EN_80UA_180UA_CUR_SOURCE;
++		break;
++	case TYPEC_CC_OPEN:
++	case TYPEC_CC_RP_DEF:
++		rp = 0;
++		break;
++	case TYPEC_CC_RD:
++		rp = -1;	/* sink: nothing to program */
++		break;
++	default:
++		dev_warn(port->dev, "unexpected set_cc %d\n", cc);
++		return -EINVAL;
++	}
++
++	spin_lock_irqsave(&port->lock, flags);
++
++	if (rp >= 0)
++		ret = regmap_update_bits(port->regmap,
++					 port->base + TYPE_C_CFG_2_REG,
++					 TYPE_C_DFP_CURRSRC_MODE |
++					 EN_80UA_180UA_CUR_SOURCE, rp);
++	if (!ret)
++		pmi8998_port_set_cc_debounce(port);
++
++	spin_unlock_irqrestore(&port->lock, flags);
++
++	dev_dbg(port->dev, "set_cc %d: %d\n", cc, ret);
++
++	return ret;
++}
++
++static int pmi8998_port_set_polarity(struct tcpc_dev *tcpc,
++				     enum typec_cc_polarity pol)
++{
++	/* Orientation is handled in hardware */
++	return 0;
++}
++
++static int pmi8998_port_set_vconn(struct tcpc_dev *tcpc, bool on)
++{
++	struct pmi8998_typec_port *port = to_port(tcpc);
++	unsigned int st4, mask, value;
++	unsigned long flags;
++	int ret;
++
++	spin_lock_irqsave(&port->lock, flags);
++
++	ret = pmi8998_port_read_status4(port, &st4);
++	if (ret)
++		goto done;
++
++	/* VCONN goes on the CC line opposite to the active one */
++	if (on) {
++		mask = VCONN_EN_ORIENTATION | VCONN_EN_VALUE;
++		value = ((st4 & CC_ORIENTATION) ? 0 : VCONN_EN_ORIENTATION) |
++			VCONN_EN_VALUE;
++	} else {
++		mask = VCONN_EN_VALUE;
++		value = 0;
++	}
++
++	ret = regmap_update_bits(port->regmap,
++				 port->base + TYPE_C_INTRPT_ENB_SOFTWARE_CTRL_REG,
++				 mask, value);
++done:
++	spin_unlock_irqrestore(&port->lock, flags);
++
++	dev_dbg(port->dev, "set_vconn %s: %d\n", str_on_off(on), ret);
++
++	return ret;
++}
++
++static int pmi8998_port_start_toggling(struct tcpc_dev *tcpc,
++				       enum typec_port_type port_type,
++				       enum typec_cc_status cc)
++{
++	struct pmi8998_typec_port *port = to_port(tcpc);
++	unsigned int mode;
++	unsigned long flags;
++	int ret;
++
++	switch (port_type) {
++	case TYPEC_PORT_SRC:
++		mode = DFP_EN_CMD;
++		break;
++	case TYPEC_PORT_SNK:
++		mode = UFP_EN_CMD;
++		break;
++	default:
++		/* DRP; Try.SNK is enabled in TYPE_C_CFG_3 */
++		mode = 0;
++		break;
++	}
++
++	spin_lock_irqsave(&port->lock, flags);
++
++	pmi8998_port_set_cc_debounce(port);
++
++	/* Force the state machine to toggle at least once */
++	ret = regmap_update_bits(port->regmap,
++				 port->base + TYPE_C_INTRPT_ENB_SOFTWARE_CTRL_REG,
++				 TYPEC_POWER_ROLE_CMD_MASK, TYPEC_DISABLE_CMD);
++	if (!ret)
++		ret = regmap_update_bits(port->regmap,
++					 port->base + TYPE_C_INTRPT_ENB_SOFTWARE_CTRL_REG,
++					 TYPEC_POWER_ROLE_CMD_MASK, mode);
++
++	spin_unlock_irqrestore(&port->lock, flags);
++
++	dev_dbg(port->dev, "start_toggling type %d mode %x: %d\n",
++		port_type, mode, ret);
++
++	return ret;
++}
++
++static int pmi8998_port_start(struct pmic_typec *tcpm,
++			      struct tcpm_port *tcpm_port)
++{
++	struct pmi8998_typec_port *port = (void *)tcpm->pmic_typec_port;
++	int ret;
++
++	/* VCONN under software control, off; DRP */
++	ret = regmap_update_bits(port->regmap,
++				 port->base + TYPE_C_INTRPT_ENB_SOFTWARE_CTRL_REG,
++				 VCONN_EN_SRC | VCONN_EN_VALUE |
++				 TYPEC_POWER_ROLE_CMD_MASK, VCONN_EN_SRC);
++	if (ret)
++		return ret;
++
++	port->tcpm_port = tcpm_port;
++	enable_irq(port->irq);
++
++	return 0;
++}
++
++static void pmi8998_port_stop(struct pmic_typec *tcpm)
++{
++	struct pmi8998_typec_port *port = (void *)tcpm->pmic_typec_port;
++
++	disable_irq(port->irq);
++	disable_delayed_work_sync(&port->cc_debounce_dwork);
++	disable_delayed_work_sync(&port->cc_recheck_dwork);
++	disable_delayed_work_sync(&port->icl_dwork);
++}
++
++int qcom_pmic_typec_port_pmi8998_probe(struct platform_device *pdev,
++				       struct pmic_typec *tcpm,
++				       const struct pmic_typec_port_resources *res,
++				       struct regmap *regmap,
++				       u32 base)
++{
++	struct device *dev = &pdev->dev;
++	struct pmi8998_typec_port *port;
++	struct fwnode_handle *connector;
++	int ret;
++
++	port = devm_kzalloc(dev, sizeof(*port), GFP_KERNEL);
++	if (!port)
++		return -ENOMEM;
++
++	connector = device_get_named_child_node(dev, "connector");
++	if (!connector)
++		return -EINVAL;
++
++	port->vdd_vbus = devm_of_regulator_get_optional(dev, to_of_node(connector),
++							"vbus");
++	fwnode_handle_put(connector);
++	if (port->vdd_vbus == ERR_PTR(-ENODEV))
++		port->vdd_vbus = devm_regulator_get(dev, "vdd-vbus");
++	if (IS_ERR(port->vdd_vbus))
++		return PTR_ERR(port->vdd_vbus);
++
++	port->dev = dev;
++	port->base = base;
++	port->regmap = regmap;
++	mutex_init(&port->vbus_lock);
++	spin_lock_init(&port->lock);
++	INIT_DELAYED_WORK(&port->cc_debounce_dwork, pmi8998_port_cc_debounce);
++	INIT_DELAYED_WORK(&port->cc_recheck_dwork, pmi8998_port_cc_recheck);
++	mutex_init(&port->icl_lock);
++	INIT_DELAYED_WORK(&port->icl_dwork, pmi8998_port_icl_work);
++
++	port->irq = platform_get_irq_byname(pdev, "type-c-change");
++	if (port->irq < 0)
++		return port->irq;
++
++	ret = devm_request_threaded_irq(dev, port->irq, NULL, pmi8998_port_isr,
++					IRQF_ONESHOT | IRQF_NO_AUTOEN,
++					"type-c-change", port);
++	if (ret)
++		return ret;
++
++	/* The common code only passes this pointer back to us */
++	tcpm->pmic_typec_port = (struct pmic_typec_port *)port;
++
++	tcpm->tcpc.get_vbus = pmi8998_port_get_vbus;
++	tcpm->tcpc.set_vbus = pmi8998_port_set_vbus;
++	tcpm->tcpc.set_cc = pmi8998_port_set_cc;
++	tcpm->tcpc.get_cc = pmi8998_port_get_cc;
++	tcpm->tcpc.set_polarity = pmi8998_port_set_polarity;
++	tcpm->tcpc.set_vconn = pmi8998_port_set_vconn;
++	tcpm->tcpc.start_toggling = pmi8998_port_start_toggling;
++	tcpm->tcpc.set_current_limit = pmi8998_port_set_current_limit;
++
++	tcpm->port_start = pmi8998_port_start;
++	tcpm->port_stop = pmi8998_port_stop;
++
++	return 0;
++}
+diff -ruN a/drivers/usb/typec/tcpm/qcom/qcom_pmic_typec_port.h b/drivers/usb/typec/tcpm/qcom/qcom_pmic_typec_port.h
+--- a/drivers/usb/typec/tcpm/qcom/qcom_pmic_typec_port.h
++++ b/drivers/usb/typec/tcpm/qcom/qcom_pmic_typec_port.h
+@@ -32,4 +32,10 @@
+ 			       struct regmap *regmap,
+ 			       u32 base);
+ 
++int qcom_pmic_typec_port_pmi8998_probe(struct platform_device *pdev,
++				       struct pmic_typec *tcpm,
++				       const struct pmic_typec_port_resources *res,
++				       struct regmap *regmap,
++				       u32 base);
++
+ #endif /* __QCOM_PMIC_TYPE_C_PORT_H__ */
+diff -ruN a/drivers/usb/typec/tcpm/qcom/qcom_pmic_typec.c b/drivers/usb/typec/tcpm/qcom/qcom_pmic_typec.c
+--- a/drivers/usb/typec/tcpm/qcom/qcom_pmic_typec.c
++++ b/drivers/usb/typec/tcpm/qcom/qcom_pmic_typec.c
+@@ -21,6 +21,10 @@
+ struct pmic_typec_resources {
+ 	const struct pmic_typec_pdphy_resources	*pdphy_res;
+ 	const struct pmic_typec_port_resources	*port_res;
++	int (*port_probe)(struct platform_device *pdev,
++			  struct pmic_typec *tcpm,
++			  const struct pmic_typec_port_resources *res,
++			  struct regmap *regmap, u32 base);
+ };
+ 
+ static int qcom_pmic_typec_init(struct tcpc_dev *tcpc)
+@@ -60,8 +64,11 @@
+ 	if (ret)
+ 		return ret;
+ 
+-	ret = qcom_pmic_typec_port_probe(pdev, tcpm,
+-					 res->port_res, regmap, base);
++	if (res->port_probe)
++		ret = res->port_probe(pdev, tcpm, res->port_res, regmap, base);
++	else
++		ret = qcom_pmic_typec_port_probe(pdev, tcpm,
++						 res->port_res, regmap, base);
+ 	if (ret)
+ 		return ret;
+ 
+@@ -144,9 +151,15 @@
+ 	.port_res = &pm8150b_port_res,
+ };
+ 
++static const struct pmic_typec_resources pmi8998_typec_res = {
++	.pdphy_res = &pm8150b_pdphy_res,
++	.port_probe = qcom_pmic_typec_port_pmi8998_probe,
++};
++
+ static const struct of_device_id qcom_pmic_typec_table[] = {
+ 	{ .compatible = "qcom,pm8150b-typec", .data = &pm8150b_typec_res },
+ 	{ .compatible = "qcom,pmi632-typec", .data = &pmi632_typec_res },
++	{ .compatible = "qcom,pmi8998-tcpm", .data = &pmi8998_typec_res },
+ 	{ }
+ };
+ MODULE_DEVICE_TABLE(of, qcom_pmic_typec_table);
+diff -ruN a/drivers/usb/typec/tcpm/qcom/qcom_pmic_typec.h b/drivers/usb/typec/tcpm/qcom/qcom_pmic_typec.h
+--- a/drivers/usb/typec/tcpm/qcom/qcom_pmic_typec.h
++++ b/drivers/usb/typec/tcpm/qcom/qcom_pmic_typec.h
+@@ -16,6 +16,7 @@
+ 	int (*pdphy_start)(struct pmic_typec *tcpm,
+ 			   struct tcpm_port *tcpm_port);
+ 	void (*pdphy_stop)(struct pmic_typec *tcpm);
++	void (*pdphy_cc_detached)(struct pmic_typec *tcpm);
+ 
+ 	int (*port_start)(struct pmic_typec *tcpm,
+ 			  struct tcpm_port *tcpm_port);

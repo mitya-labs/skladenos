@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# Запускать НА ТЕЛЕФОНЕ (Mobian) от root ПОСЛЕ scripts/miui-firmware-flash.
+# droid-juicer один раз вытащил прошивки модема/ADSP/WLAN/BT из СТАРЫХ Android-разделов
+# в /lib/firmware/updates; после обновления разделов они не совпадают с новыми tz/hyp/modem.
+# Скрипт стирает старую выгрузку и заново извлекает прошивки из новых разделов.
+#
+#   scp scripts/mobian-refresh-firmware mobian@mobian.local:/tmp/
+#   ssh -t mobian@mobian.local sudo bash /tmp/mobian-refresh-firmware
+set -euo pipefail
+[ "$(id -u)" -eq 0 ] || { echo "нужен root (sudo)" >&2; exit 1; }
+
+FW=/lib/firmware/updates/qcom/sdm845/beryllium
+STATE=/var/lib/droid-juicer
+
+echo "[~2 сек] останавливаю замер/DSP-сервисы, которые держат прошивки"
+systemctl stop mobian-health 2>/dev/null || true
+echo stop > /sys/class/remoteproc/remoteproc2/state 2>/dev/null || true   # slpi, если запущен вручную
+
+echo "[~2 сек] убираю старую выгрузку (и вручную собранный slpi.mbn от прошивки 2018)"
+mkdir -p /root/fw-backup-$(date +%Y%m%d)
+cp -a "$STATE/status.json" /root/fw-backup-$(date +%Y%m%d)/ 2>/dev/null || true
+cp -a /lib/firmware/updates /root/fw-backup-$(date +%Y%m%d)/updates 2>/dev/null || true
+rm -f "$STATE/status.json" "$FW/slpi.mbn"
+
+echo "[~30 сек] droid-juicer: заново извлекаю прошивки из новых разделов"
+droid-juicer
+
+# SLPI (датчики) пока не работает: FastRPC для sdsp не поднимается (qcom_scm -22), SLPI падает по кругу
+# (sensor_process … USER-PD DOG detects stalled initialization) и жжёт батарею. Прошивка лежит и в initrd,
+# поэтому убираем slpi.mbn и пересобираем initramfs (он же перезаписывает раздел boot: cmdline должен остаться "rw").
+# Чтобы включить датчики позже: mv /root/fw-disabled/slpi.mbn $FW/ && update-initramfs -u
+if [ "${KEEP_SLPI:-0}" != "1" ] && [ -f "$FW/slpi.mbn" ]; then
+  echo "[~1 мин] отключаю SLPI: slpi.mbn → /root/fw-disabled, update-initramfs -u"
+  mkdir -p /root/fw-disabled
+  mv "$FW/slpi.mbn" /root/fw-disabled/slpi.mbn
+  update-initramfs -u
+  dd if=/dev/disk/by-partlabel/boot bs=1M count=8 2>/dev/null | grep -a -o -E "init=/sbin/init [a-z]+ quiet splash" | head -1
+  echo "  (в строке выше должно быть rw; если ro — НЕ перезагружаться, перешить boot-образ с rw через fastboot)"
+fi
+
+echo "Проверка: slpi.mbn (KEEP_SLPI=1 — оставить)"
+ls -la "$FW/slpi.mbn" 2>&1 || echo "  (нет slpi.mbn — slpi.mdt в новой прошивке тоже не найден)"
+echo "Готово. Перезагрузить: sudo reboot. Затем проверить: Wi-Fi, звук (aplay -l), модем (mmcli -L),"
+echo "remoteproc (cat /sys/class/remoteproc/*/state), датчики (dmesg | grep -i slpi)."

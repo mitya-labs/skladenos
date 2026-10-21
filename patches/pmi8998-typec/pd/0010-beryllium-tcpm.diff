@@ -1,0 +1,54 @@
+diff -ruN a/arch/arm64/boot/dts/qcom/sdm845-xiaomi-beryllium-common.dtsi b/arch/arm64/boot/dts/qcom/sdm845-xiaomi-beryllium-common.dtsi
+--- a/arch/arm64/boot/dts/qcom/sdm845-xiaomi-beryllium-common.dtsi
++++ b/arch/arm64/boot/dts/qcom/sdm845-xiaomi-beryllium-common.dtsi
+@@ -11,6 +11,7 @@
+ #include <dt-bindings/sound/qcom,q6afe.h>
+ #include <dt-bindings/sound/qcom,q6asm.h>
+ #include <dt-bindings/sound/qcom,q6voice.h>
++#include <dt-bindings/usb/pd.h>
+ #include "sdm845.dtsi"
+ #include "sdm845-wcd9340.dtsi"
+ #include "pm8998.dtsi"
+@@ -533,6 +534,26 @@
+ };
+ 
+ &pmi8998_typec {
++	/* TCPM + PD PHY (qcom_pmic_tcpm) instead of the role-switch-only driver */
++	compatible = "qcom,pmi8998-tcpm";
++	reg = <0x1300>, <0x1700>;
++	interrupts = <0x2 0x13 0x7 IRQ_TYPE_EDGE_BOTH>,
++		     <0x2 0x17 0x0 IRQ_TYPE_EDGE_RISING>,
++		     <0x2 0x17 0x1 IRQ_TYPE_EDGE_RISING>,
++		     <0x2 0x17 0x2 IRQ_TYPE_EDGE_RISING>,
++		     <0x2 0x17 0x3 IRQ_TYPE_EDGE_RISING>,
++		     <0x2 0x17 0x4 IRQ_TYPE_EDGE_RISING>,
++		     <0x2 0x17 0x5 IRQ_TYPE_EDGE_RISING>,
++		     <0x2 0x17 0x6 IRQ_TYPE_EDGE_RISING>;
++	interrupt-names = "type-c-change",
++			  "sig-tx",
++			  "sig-rx",
++			  "msg-tx",
++			  "msg-rx",
++			  "msg-tx-failed",
++			  "msg-tx-discarded",
++			  "msg-rx-discarded";
++	vdd-pdphy-supply = <&vreg_l24a_3p075>;
+ 	status = "okay";
+ 
+ 	connector {
+@@ -542,6 +563,15 @@
+ 		data-role = "dual";
+ 		try-power-role = "sink";
+ 
++		/* 5 V only for now: qcom_smbx knows nothing about PD voltages */
++		source-pdos = <PDO_FIXED(5000, 1500, PDO_FIXED_DUAL_ROLE |
++					 PDO_FIXED_USB_COMM |
++					 PDO_FIXED_DATA_SWAP)>;
++		sink-pdos = <PDO_FIXED(5000, 3000, PDO_FIXED_DUAL_ROLE |
++				       PDO_FIXED_USB_COMM |
++				       PDO_FIXED_DATA_SWAP)>;
++		op-sink-microwatt = <10000000>;
++
+ 		ports {
+ 			#address-cells = <1>;
+ 			#size-cells = <0>;

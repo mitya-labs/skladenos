@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# Планы питания (Баланс / Экономия / Ночь / Производительность) + ssh-toggle из репозитория sxmo-configs, адаптированные под SDM845 (STATE п.107).
+#   /usr/local/bin/powerplan-apply, /usr/local/share/powerplan/plans/*.conf, sudoers /etc/sudoers.d/sxmo-powerplan (без пароля, только powerplan-apply),
+#   ~/.local/bin/powerplan, меню SXMO Scripts: папка «Питание» (plan-*), пункты ssh-toggle, screen-awake (экран не гаснет; значок в баре — sxmo-setup 2b) и sound-mute.
+# Запуск с Мака при подключённом телефоне: scripts/powerplan-install. Сам ставит хук меню с подпапками (sxmo_hook_scripts.sh + sxmo_userscripts_folder.sh).
+set -euo pipefail
+R="$(cd "$(dirname "$0")/.." && pwd)"; P="$R/scripts/phone-ssh"; S="$R/scripts/phone/powerplan"
+export PHONE_HOST="${PHONE_HOST:-10.66.0.1}" PHONE_PASS="${PHONE_PASS:-1234}"
+q() { "$P" "$@" | { grep -v assword || true; }; }
+echo "[1/4] файлы на телефон (~/powerplan-stage)"
+q 'rm -rf ~/powerplan-stage; mkdir -p ~/powerplan-stage/plans ~/.local/bin'
+q --put "$S/powerplan-apply" /home/mobian/powerplan-stage/powerplan-apply
+for f in "$S"/plans/*.conf; do q --put "$f" "/home/mobian/powerplan-stage/plans/$(basename "$f")"; done
+q --put "$S/powerplan" /home/mobian/.local/bin/powerplan
+echo "[2/4] /usr/local + sudoers (проверка visudo)"
+q 'echo '"$PHONE_PASS"' | sudo -S -p "" sh -c "
+install -d /usr/local/share/powerplan/plans &&
+install -m755 /home/mobian/powerplan-stage/powerplan-apply /usr/local/bin/powerplan-apply &&
+install -m644 /home/mobian/powerplan-stage/plans/*.conf /usr/local/share/powerplan/plans/ &&
+echo \"mobian ALL=(root) NOPASSWD: /usr/local/bin/powerplan-apply\" > /tmp/sxmo-powerplan.sudoers &&
+visudo -cf /tmp/sxmo-powerplan.sudoers &&
+install -m440 /tmp/sxmo-powerplan.sudoers /etc/sudoers.d/sxmo-powerplan &&
+rm -f /tmp/sxmo-powerplan.sudoers; ls /usr/local/share/powerplan/plans"'
+q 'chmod +x ~/.local/bin/powerplan; rm -rf ~/powerplan-stage'
+echo "[3/4] хук меню с подпапками + пункты меню: папка Питание + ssh-toggle + screen-awake + sound-mute"
+q 'mkdir -p ~/.config/sxmo/userscripts/Питание ~/.config/sxmo/hooks'
+q --put "$R/scripts/phone/sxmo_hook_scripts.sh" /home/mobian/.config/sxmo/hooks/sxmo_hook_scripts.sh
+q --put "$R/scripts/phone/sxmo_userscripts_folder.sh" /home/mobian/.local/bin/sxmo_userscripts_folder.sh
+q 'chmod +x ~/.config/sxmo/hooks/sxmo_hook_scripts.sh ~/.local/bin/sxmo_userscripts_folder.sh'
+for f in "$R"/scripts/phone/userscripts/Питание/*; do q --put "$f" "/home/mobian/.config/sxmo/userscripts/Питание/$(basename "$f")"; done
+q --put "$R/scripts/phone/userscripts/ssh-toggle" /home/mobian/.config/sxmo/userscripts/ssh-toggle
+q --put "$R/scripts/phone/userscripts/screen-awake" /home/mobian/.config/sxmo/userscripts/screen-awake
+q --put "$R/scripts/phone/userscripts/sound-mute" /home/mobian/.config/sxmo/userscripts/sound-mute
+q 'chmod +x ~/.config/sxmo/userscripts/Питание/* ~/.config/sxmo/userscripts/ssh-toggle ~/.config/sxmo/userscripts/screen-awake ~/.config/sxmo/userscripts/sound-mute'
+echo "[4/4] проверка: список планов и текущий"
+q '~/.local/bin/powerplan list; ~/.local/bin/powerplan get'

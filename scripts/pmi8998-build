@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Собирает модули Type-C/VBUS PMI8998 и dtb beryllium в Docker (том kbuild-src), результат в images/kernels/pmi8998/.
+# PD=1 scripts/pmi8998-build — вариант с TCPM/PD (qcom_pmic_tcpm.ko + dtb) в images/kernels/pmi8998/pd/.
+set -euo pipefail
+R="$(cd "$(dirname "$0")/.." && pwd)"
+docker volume inspect kbuild-src >/dev/null 2>&1 || docker volume create kbuild-src >/dev/null
+docker run --rm -e PD="${PD:-0}" -v kbuild-src:/src -v "$HOME/Developer/os/linux-sdm845/.git":/gitsrc:ro \
+  -v "$R/patches/pmi8998-typec":/patches:ro -v "$R/scripts/kbuild":/kb:ro -v "$R/images/kernels/pmi8998":/out \
+  kbuild-sdm845 bash /kb/inner.sh

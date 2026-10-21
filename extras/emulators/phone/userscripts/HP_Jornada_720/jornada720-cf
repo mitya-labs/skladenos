@@ -1,0 +1,58 @@
+#!/bin/sh
+# title="Jornada 720: карта CF"
+# Подменю: вставить образ из ~/jornada-cf/ или папку ~/jornada-files
+# (изменения из CE копируются в неё при извлечении и выходе), вынуть
+# карту, сделать новую. Работает и при запущенном эмуляторе (сразу), и
+# без него (карта будет в слоте при следующем запуске).
+
+. sxmo_common.sh 2>/dev/null
+
+CF="$HOME/Developer/qemu-jornada720/j720-cf.py"
+CARDS="$HOME/jornada-cf"
+FILES="${J720_FILES:-$HOME/jornada-files}"
+STATE="${XDG_STATE_HOME:-$HOME/.local/state}/qemu-jornada720/cf"
+
+mkdir -p "$CARDS" "$FILES"
+
+current="пусто"
+[ -f "$STATE" ] && current="$(basename "$(cat "$STATE")")"
+
+choice="$(
+	{
+		echo "Вынуть карту"
+		echo "Новая карта"
+		echo "Папка: $(basename "$FILES") (синхронизация)"
+		for img in "$CARDS"/*.img; do
+			[ -e "$img" ] && echo "Образ: $(basename "$img")"
+		done
+		echo "Закрыть"
+	} | sxmo_dmenu.sh -p "CF: $current"
+)" || exit 0
+
+notify() {
+	sxmo_notify_user.sh "$1" 2>/dev/null || echo "$1"
+}
+
+run() {
+	status=0
+	out="$("$CF" "$@" 2>&1)" || status=$?
+	notify "$(echo "$out" | sed 's/^j720-cf: //; s|'"$HOME"'|~|g')"
+	return $status
+}
+
+case "$choice" in
+	"Вынуть карту")
+		run eject
+		;;
+	"Новая карта")
+		n=1
+		while [ -e "$CARDS/card$n.img" ]; do n=$((n + 1)); done
+		run new "$CARDS/card$n.img" && run insert "$CARDS/card$n.img"
+		;;
+	"Папка: "*)
+		run insert "$FILES"
+		;;
+	"Образ: "*)
+		run insert "$CARDS/${choice#Образ: }"
+		;;
+esac

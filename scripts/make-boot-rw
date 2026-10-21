@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# Делает из оригинального boot-образа Mobian образ с `rw` вместо `ro` в cmdline ядра.
+# Без этого Mobian уходит в бутлуп: корень остаётся read-only, droid-juicer не может сохранить
+# /var/lib/droid-juicer/status.json и перезагружает систему на каждой загрузке (см. STATE.md п.2).
+#
+# Использование: scripts/make-boot-rw [ebbg|tianma]     (по умолчанию ebbg)
+# Берёт:  images/mobian/mobian-sdm845-phosh-20260927.boot-beryllium-<вариант>.img
+#         (если его нет — достаёт из images/mobian/mobian-sdm845-phosh-20260927.tar.xz)
+# Пишет:  images/mobian/boot-beryllium-<вариант>-rw.img
+# Замена той же длины (` ro quiet splash` → ` rw quiet splash`), заголовок образа не ломается.
+set -euo pipefail
+
+VARIANT="${1:-ebbg}"
+case "$VARIANT" in ebbg|tianma) ;; *) echo "вариант: ebbg или tianma" >&2; exit 2 ;; esac
+
+cd "$(dirname "$0")/../images/mobian"
+STAMP="mobian-sdm845-phosh-20260927"
+SRC="$STAMP.boot-beryllium-$VARIANT.img"
+OUT="boot-beryllium-$VARIANT-rw.img"
+
+if [ ! -f "$SRC" ]; then
+  [ -f "$STAMP.tar.xz" ] || { echo "нет $SRC и нет $STAMP.tar.xz" >&2; exit 1; }
+  echo "[~20 сек] достаю $SRC из $STAMP.tar.xz"
+  tar -xf "$STAMP.tar.xz" "$SRC"
+fi
+
+python3 - "$SRC" "$OUT" <<'E'
+import sys
+src, out = sys.argv[1], sys.argv[2]
+d = bytearray(open(src, "rb").read())
+ro, rw = b" ro quiet splash", b" rw quiet splash"
+if d.count(rw) == 1 and d.count(ro) == 0:
+    print("в образе уже rw")
+else:
+    assert d.count(ro) == 1, "ожидалась ровно одна строка ' ro quiet splash' (нашлось %d)" % d.count(ro)
+    i = d.find(ro)
+    d[i:i + len(ro)] = rw
+open(out, "wb").write(d)
+cl = bytes(d[d.find(b"mobile.root="):]).split(b"\0")[0].decode()
+print("cmdline:", cl)
+assert cl.endswith("rw quiet splash"), "cmdline не заканчивается на 'rw quiet splash'"
+E
+ls -la "$OUT"
+shasum -a 256 "$OUT"

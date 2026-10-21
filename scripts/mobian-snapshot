@@ -1,0 +1,120 @@
+#!/usr/bin/env bash
+# Снимок корневой ФС Mobian на телефоне + раздела boot → images/snapshots/mobian-<метка>/ на Маке.
+# Работает по SSH (по умолчанию USB-кабель 10.66.0.1, быстрее Wi-Fi); пароль mobian — PHONE_PASS (по умолч. 1234).
+# Нужны: expect (есть в macOS), на телефоне bash/tar/zstd/sha256sum.
+#
+#   scripts/mobian-snapshot [хост=10.66.0.1]
+#   NOTE="что нового в этом снимке (п.STATE)" scripts/mobian-snapshot   # описание → <снимок>/ABOUT.txt
+#
+# Что делает: архив `/` (tar + zstd -3, xattrs/acls, без /proc /sys /dev /run /tmp и кеша apt) и `dd` раздела boot
+# собираются на телефоне в /var/tmp (≈2.5–3 ГБ + ~60 МБ), затем копируются на Мак (scp), сверяются sha256, временные
+# файлы на телефоне удаляются. Снимок «живой» (система работает): tar может вернуть код 1 (файл менялся при чтении) — это норма.
+# ВНИМАНИЕ: в снимке секреты (пароли Wi-Fi, хэши паролей, host-ключи SSH) — хранить локально (images/ вне git), не публиковать.
+# Восстановление: RESTORE.md §8 (база mobian-flash + `zstd -dc snap.tar.zst | tar -xpf - -C /` по SSH) или pmOS debug-shell.
+set -euo pipefail
+
+HOST="${1:-10.66.0.1}"
+PASS="${PHONE_PASS:-1234}"
+STAMP="$(date +%Y%m%d-%H%M)"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+OUT="$ROOT/images/snapshots/mobian-$STAMP"
+mkdir -p "$OUT"
+
+# --- скрипт, который выполняется НА ТЕЛЕФОНЕ (отправляется целиком, чтобы не мучиться с кавычками) ---
+read -r -d '' PHONE_JOB <<'EOS' || true
+#!/bin/bash
+cd /var/tmp
+case "$1" in
+start)
+  rm -f snap.*
+  nohup bash -c 'set -o pipefail; cd / && tar --xattrs --acls --numeric-owner --one-file-system -cpf - \
+      --exclude=./proc/* --exclude=./sys/* --exclude=./dev/* --exclude=./run/* --exclude=./tmp/* \
+      --exclude=./var/tmp/snap.* --exclude=./var/cache/apt/archives/* . | zstd -3 -T0 -q > /var/tmp/snap.tar.zst
+      echo $? > /var/tmp/snap.rc' > /var/tmp/snap.log 2>&1 < /dev/null &
+  echo started ;;
+status)
+  if [ -f snap.rc ]; then echo "done:$(cat snap.rc)"; else echo "running:$(stat -c %s snap.tar.zst 2>/dev/null)"; fi ;;
+finish)
+  dd if=/dev/disk/by-partlabel/boot bs=1M 2>/dev/null | zstd -3 -q > snap.boot.img.zst
+  {
+    echo "## date";        date -u
+    echo "## uname";       uname -a
+    echo "## os-release";  cat /etc/os-release
+    echo "## holds";       apt-mark showhold
+    echo "## boot-partition cmdline"
+    dd if=/dev/disk/by-partlabel/boot bs=1M count=8 2>/dev/null | grep -a -o -E 'init=/sbin/init [a-z]+ quiet splash' | head -1
+    echo "## fstab";       cat /etc/fstab
+    echo "## partitions";  cat /proc/partitions
+    echo "## dpkg";        dpkg --get-selections
+  } > snap.meta.txt
+  sha256sum snap.tar.zst snap.boot.img.zst snap.meta.txt > snap.sha256
+  chmod a+r snap.*
+  ls -la snap.* ;;
+cleanup)
+  rm -f snap.* snapjob.sh ;;
+esac
+EOS
+
+# --- вспомогательные функции (пароль через expect-файлы: схема, проверенная в остальных скриптах) ---
+TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+cat > "$TMP/ssh.exp" <<'EXP'
+#!/usr/bin/expect -f
+set timeout 900
+spawn ssh -o StrictHostKeyChecking=accept-new -o PubkeyAuthentication=no -o ConnectTimeout=10 mobian@[lindex $argv 0] [lindex $argv 1]
+expect {
+  "assword:" { send "$env(PHONE_PASS)\r"; exp_continue }
+  eof
+}
+EXP
+cat > "$TMP/scp.exp" <<'EXP'
+#!/usr/bin/expect -f
+set timeout 3600
+spawn scp -o StrictHostKeyChecking=accept-new -o PubkeyAuthentication=no mobian@[lindex $argv 0]:[lindex $argv 1] [lindex $argv 2]
+expect {
+  "assword:" { send "$env(PHONE_PASS)\r"; exp_continue }
+  eof
+}
+EXP
+chmod +x "$TMP/ssh.exp" "$TMP/scp.exp"
+export PHONE_PASS="$PASS"
+rsh() { "$TMP/ssh.exp" "$HOST" "$1" 2>&1 | sed '1,2d' | tr -d '\r'; }   # команда на телефоне, вывод в stdout
+rjob() { rsh "echo '$PASS' | sudo -S -p '' bash /var/tmp/snapjob.sh $1"; }   # шаг job от root
+
+echo "[~5 сек, $(date +%H:%M)] проверяю связь с $HOST и отправляю job-скрипт"
+rsh 'uptime -p; df -h / | tail -1' || { echo "нет SSH на $HOST" >&2; exit 1; }
+B64=$(printf '%s\n' "$PHONE_JOB" | base64 | tr -d '\n')
+rsh "echo $B64 | base64 -d > /var/tmp/snapjob.sh && chmod +x /var/tmp/snapjob.sh && echo job_uploaded"
+
+echo "[~5 мин, $(date +%H:%M)] запускаю архивирование на телефоне (в фоне)"
+rjob start
+for i in $(seq 1 160); do
+  sleep 15
+  st=$(rjob status | tail -1)
+  echo "   [$(date +%H:%M)] $st"
+  case "$st" in
+    done:0|done:1) break ;;
+    done:*) echo "tar/zstd завершился с ошибкой: $st (лог /var/tmp/snap.log на телефоне)" >&2; exit 1 ;;
+  esac
+done
+
+echo "[~1 мин, $(date +%H:%M)] boot-раздел, метаданные, sha256"
+rjob finish | tail -6
+
+echo "[~3 мин, $(date +%H:%M)] копирую на Мак → $OUT"
+for f in snap.tar.zst snap.boot.img.zst snap.meta.txt snap.sha256; do
+  "$TMP/scp.exp" "$HOST" "/var/tmp/$f" "$OUT/" >/dev/null 2>&1
+  ls -la "$OUT/$f" | awk '{print "   "$5, $9}'
+done
+
+echo "[~30 сек, $(date +%H:%M)] проверяю sha256 на Маке"
+( cd "$OUT" && shasum -a 256 -c snap.sha256 )
+
+echo "чищу временные файлы на телефоне"
+rjob cleanup >/dev/null
+# Описание снимка: что в нём по функционалу (NOTE) + последний коммит репозитория на момент снимка
+{ echo "Снимок $(basename "$OUT"), $(date '+%d.%m.%Y %H:%M')"
+  echo "Репозиторий: $(git -C "$ROOT" log -1 --format='%h %s' 2>/dev/null)"
+  echo; echo "${NOTE:-(описание не задано: NOTE=\"...\" scripts/mobian-snapshot; дописать вручную, см. RESTORE §11)}"
+} > "$OUT/ABOUT.txt"
+echo "Готово ($(date +%H:%M)): $OUT"
+du -sh "$OUT"

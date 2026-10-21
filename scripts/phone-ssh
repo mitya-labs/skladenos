@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Команда на телефоне по SSH с паролем (expect, как в mobian-snapshot). PHONE_HOST (по умолчанию 10.66.0.1), PHONE_PASS (по умолчанию 1234).
+# Использование: scripts/phone-ssh 'команда'   |   scripts/phone-ssh --put локальный_файл удалённый_путь
+set -euo pipefail
+HOST="${PHONE_HOST:-10.66.0.1}"; export PHONE_PASS="${PHONE_PASS:-1234}"
+run() { /usr/bin/expect -f <(cat <<'EXP'
+set timeout 120
+spawn ssh -o StrictHostKeyChecking=accept-new -o PubkeyAuthentication=no -o ConnectTimeout=10 mobian@[lindex $argv 0] [lindex $argv 1]
+expect {
+  "assword:" { send "$env(PHONE_PASS)\r"; exp_continue }
+  eof
+}
+EXP
+) "$HOST" "$1" 2>&1 | tr -d '\r' | { grep -v '^spawn ' || true; }; }
+if [ "${1:-}" = "--put" ]; then
+  # кусками по ~40 КБ base64 (лимит длины аргумента), потом декодирование
+  TMPB=$(mktemp); base64 < "$2" | tr -d '\n' > "$TMPB"; N=$(wc -c < "$TMPB"); OFF=0; run "rm -f /tmp/.put.b64" >/dev/null
+  while [ "$OFF" -lt "$N" ]; do
+    CH=$(dd if="$TMPB" bs=1 skip="$OFF" count=40000 2>/dev/null); run "printf %s $CH >> /tmp/.put.b64" >/dev/null; OFF=$((OFF+40000))
+  done
+  rm -f "$TMPB"; run "base64 -d /tmp/.put.b64 > $3 && rm -f /tmp/.put.b64 && echo put:$3 \$(wc -c < $3)"
+else run "$1"; fi

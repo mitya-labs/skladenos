@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Ставит на телефон Type-C + VBUS PMI8998 (по SSH): артефакты из images/kernels/pmi8998/ (scripts/pmi8998-build) → /usr/local/share/pmi8998,
+# root-скрипт /usr/local/sbin/pmi8998-reapply (status|apply [typec|pd]|revert), sudoers и пункт меню SXMO «pmi8998», затем apply (initramfs + boot).
+# Артефакты собраны под пакет ядра BUILT_FOR (тег mobian/sdm845-7.2.8-1); при другой версии пакета reapply откажется (нужна пересборка).
+# Откат: scripts/phone-ssh 'sudo pmi8998-reapply revert' (или fastboot flash boot images/kernels/boot-7.2-otg.img).
+set -euo pipefail
+R="$(cd "$(dirname "$0")/.." && pwd)"; O="$R/images/kernels/pmi8998"; P="$R/scripts/phone-ssh"; T=typec-test
+BUILT_FOR="${BUILT_FOR:-7.2.8-1}"; S='echo 1234 | sudo -S -p ""'
+echo "[~3 мин, $(date +%H:%M)] загрузка файлов на телефон"
+"$P" "mkdir -p $T/pd" | tail -1
+for f in qcom_pmi8998_typec.ko qcom_usb_vbus-regulator.ko sdm845-xiaomi-beryllium-ebbg.dtb sdm845-xiaomi-beryllium-tianma.dtb; do "$P" --put "$O/$f" "$T/$f" | tail -1; done
+for f in qcom_pmic_tcpm.ko sdm845-xiaomi-beryllium-ebbg.dtb sdm845-xiaomi-beryllium-tianma.dtb; do "$P" --put "$O/pd/$f" "$T/pd/$f" | tail -1; done
+"$P" --put "$R/scripts/phone/pmi8998-reapply" "$T/pmi8998-reapply" | tail -1
+"$P" --put "$R/scripts/phone/pmi8998-menu" "$T/pmi8998-menu" | tail -1
+"$P" "$S sh -c 'set -e; A=/usr/local/share/pmi8998; H=/home/mobian
+  mkdir -p \$A/pd; install -m644 \$H/$T/*.ko \$H/$T/*.dtb \$A/; install -m644 \$H/$T/pd/* \$A/pd/; echo $BUILT_FOR > \$A/BUILT_FOR
+  install -m755 \$H/$T/pmi8998-reapply /usr/local/sbin/pmi8998-reapply
+  echo \"mobian ALL=(root) NOPASSWD: /usr/local/sbin/pmi8998-reapply\" > /etc/sudoers.d/sxmo-pmi8998; chmod 440 /etc/sudoers.d/sxmo-pmi8998; visudo -cf /etc/sudoers.d/sxmo-pmi8998
+  mkdir -p \$H/.config/sxmo/userscripts; install -m755 -o mobian -g mobian \$H/$T/pmi8998-menu \$H/.config/sxmo/userscripts/pmi8998
+  /usr/local/sbin/pmi8998-reapply status || true'" | tail -3
+echo "дальше: sudo pmi8998-reapply apply [typec|pd]  (или пункт меню Scripts → pmi8998), затем перезагрузка"

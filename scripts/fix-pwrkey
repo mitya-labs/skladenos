@@ -1,0 +1,40 @@
+#!/bin/sh
+# Ждём SSH после загрузки и сразу гасим фантомные нажатия pm8941_pwrkey.
+# Запуск: scripts/fix-pwrkey [хост] [таймаут_с]
+HOST="${1:-172.16.42.1}"
+WAIT="${2:-300}"
+LOG="logs/fix-pwrkey.log"
+SSH="ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=3 mitya@$HOST"
+
+echo "[$(date '+%F %T')] ждём SSH $HOST (до ${WAIT}с)" | tee -a "$LOG"
+SECONDS=0
+while [ "$SECONDS" -lt "$WAIT" ]; do
+	if nc -z -G 2 "$HOST" 22 2>/dev/null; then break; fi
+	sleep 3
+done
+if [ "$SECONDS" -ge "$WAIT" ]; then
+	echo "[$(date '+%F %T')] SSH так и не поднялся за ${WAIT}с" | tee -a "$LOG"
+	exit 1
+fi
+echo "[$(date '+%F %T')] SSH поднялся за ${SECONDS}с после старта скрипта" | tee -a "$LOG"
+
+echo "=== 1. Видит ли logind наш конфиг ===" | tee -a "$LOG"
+$SSH "systemd-analyze cat-config systemd/logind.conf | grep -iE 'powerkey|suspends|hibernate'" 2>&1 | tee -a "$LOG"
+
+echo "=== 2. Драйвер и устройство pwrkey ===" | tee -a "$LOG"
+$SSH "ls -1 /sys/bus/platform/drivers/pm8941-pwrkey/" 2>&1 | tee -a "$LOG"
+
+echo "=== 3. Unbind ===" | tee -a "$LOG"
+DEV=$($SSH "ls -1d /sys/bus/platform/drivers/pm8941-pwrkey/*/ 2>/dev/null | head -1" 2>/dev/null | tr -d '\r')
+if [ -n "$DEV" ]; then
+	echo "устройство: $DEV" | tee -a "$LOG"
+	$SSH "echo $(basename $DEV) | sudo tee /sys/bus/platform/drivers/pm8941-pwrkey/unbind" 2>&1 | tee -a "$LOG"
+else
+	echo "каталог-ссылка не найден, пробуем 800f000.qcom,spmi:qcom,pm8941@0:pwrkey@800" | tee -a "$LOG"
+	$SSH "echo 800f000.qcom,spmi:qcom,pm8941@0:pwrkey@800 | sudo tee /sys/bus/platform/drivers/pm8941-pwrkey/unbind" 2>&1 | tee -a "$LOG"
+fi
+
+echo "=== 4. Проверка: что осталось в input ===" | tee -a "$LOG"
+$SSH "grep -iE 'pwrkey|pm8941' /proc/bus/input/devices || echo 'pwrkey больше не в input'" 2>&1 | tee -a "$LOG"
+echo "=== uptime ===" | tee -a "$LOG"
+$SSH "cat /proc/uptime" 2>&1 | tee -a "$LOG"

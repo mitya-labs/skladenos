@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Лаунчеры и пункты меню SXMO «Scripts» для эмуляторов (после extras/emulators/build-emulators.sh): STATE п.105.
+#   (pumpkin_pmos.sh и run-sway.sh — свои, из ваших репозиториев: PumpkinOS через extras/emulators/pumpkin-sync.sh, WindEmu — ветка pmos), ~/.config/sxmo/userscripts/{HP_Jornada_720/,Psion_5mx/,pumpkinos}
+#   (подпапки как подменю меню Scripts: свой хук sxmo_hook_scripts.sh + sxmo_userscripts_folder.sh, STATE п.106)
+# Требует хук меню с подпапками (его ставит ядро: scripts/powerplan-install).
+# Лишнее: qtwayland5 (WindQt под Wayland, ~3 МБ). Запуск: extras/emulators/emulators-install
+set -euo pipefail
+R="$(cd "$(dirname "$0")/../.." && pwd)"; P="$R/scripts/phone-ssh"
+export PHONE_HOST="${PHONE_HOST:-10.66.0.1}" PHONE_PASS="${PHONE_PASS:-1234}"
+q() { "$P" "$@" | { grep -v assword || true; }; }
+q 'echo '"$PHONE_PASS"' | sudo -S -p "" env DEBIAN_FRONTEND=noninteractive apt-get install -y qtwayland5 2>&1 | tail -1'
+q ' mkdir -p ~/.config/sxmo/userscripts ~/.config/sxmo/hooks'
+q --put "$R/extras/emulators/phone/sxmo_qemu_resize.sh" /home/mobian/.local/bin/sxmo_qemu_resize.sh
+q 'chmod +x ~/.local/bin/sxmo_qemu_resize.sh'
+q 'cd ~/.config/sxmo/userscripts && rm -f jornada720* windemu-en*'
+# userscripts: верхний уровень и подпапки (HP_Jornada_720, Psion_5mx)
+cd "$R/extras/emulators/phone/userscripts"
+for d in $(find . -mindepth 1 -type d | sed 's|^\./||'); do q "mkdir -p ~/.config/sxmo/userscripts/$d"; done
+for f in $(find . -type f | sed 's|^\./||'); do
+  q --put "$R/extras/emulators/phone/userscripts/$f" "/home/mobian/.config/sxmo/userscripts/$f"
+done
+q 'find ~/.config/sxmo/userscripts -type f -exec chmod +x {} +; cd ~/.config/sxmo/userscripts && find . -type f | sort'

@@ -1,0 +1,12 @@
+[Unit]
+Description=TAS2557/TAS2560: стерео-раскладка динамиков (Configuration=1: левый канал в верхний, правый в нижний)
+After=sound.target multi-user.target
+
+[Service]
+Type=oneshot
+# карта звука (q6/ADSP) появляется не сразу; alsa-restore у нас отключён, поэтому раскладку ставим сами
+ExecStart=/bin/sh -c 'for i in $(seq 1 90); do amixer -c 0 cset name="Configuration" 1 >/dev/null 2>&1 && exit 0; sleep 1; done; exit 1'
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

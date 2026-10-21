@@ -1,0 +1,11 @@
+#!/bin/sh
+# Пункт меню SXMO «Scripts»: переключатель запрета сна (phone-nosleep on/off) с уведомлением.
+# Ставится в ~/.config/sxmo/userscripts/nosleep (scripts/sxmo-setup шаг 3g); нужен /usr/local/bin/phone-nosleep.
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" PATH="$HOME/.config/sxmo/hooks:$PATH"
+if sxmo_mutex.sh can_suspend list 2>/dev/null | grep -qx "ssh-work"; then
+	phone-nosleep off >/dev/null 2>&1
+	sxmo_notify_user.sh "Sleep ALLOWED"
+else
+	phone-nosleep on >/dev/null 2>&1 </dev/null
+	sxmo_notify_user.sh "Sleep BLOCKED (nosleep on)"
+fi

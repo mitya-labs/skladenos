@@ -1,0 +1,15 @@
+#!/bin/sh
+# title="Звук: mute вкл/выкл"
+# Выключить/включить звук основного выхода (громкость сохраняется) через sxmo_audio.sh; в баре — значок перечёркнутого динамика.
+# Аргументы: toggle (по умолчанию) | status. Ставится в ~/.config/sxmo/userscripts/sound-mute (scripts/powerplan-install).
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" PATH="$HOME/.config/sxmo/hooks:$PATH"
+case "${1:-toggle}" in
+	status) sxmo_audio.sh vol get; exit 0 ;;
+	toggle) ;;
+	*) echo "usage: sound-mute [toggle|status]" >&2; exit 2 ;;
+esac
+sxmo_audio.sh vol togglemute
+if [ "$(sxmo_audio.sh vol get)" = muted ]; then msg="Звук выключен"; else msg="Звук включён ($(sxmo_audio.sh vol get)%)"; fi
+sxmo_hook_statusbar.sh volume >/dev/null 2>&1
+sxmo_notify_user.sh "$msg" 2>/dev/null
+echo "$msg"

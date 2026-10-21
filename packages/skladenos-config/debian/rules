@@ -10,3 +10,4 @@ override_dh_installsystemd:
 	dh_installsystemd --name=adsp-start
 	dh_installsystemd --name=slpi-start
 	dh_installsystemd --name=tas2559-config
+	dh_installsystemd --name=skladenos-apply

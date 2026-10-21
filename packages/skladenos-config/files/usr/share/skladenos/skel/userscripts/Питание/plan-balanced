@@ -1,0 +1,3 @@
+#!/bin/sh
+# title="Питание: Баланс"
+exec "$HOME/.local/bin/powerplan" set balanced

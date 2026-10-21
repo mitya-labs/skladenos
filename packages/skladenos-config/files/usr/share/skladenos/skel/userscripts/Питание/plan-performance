@@ -1,0 +1,3 @@
+#!/bin/sh
+# title="Питание: Производительность"
+exec "$HOME/.local/bin/powerplan" set performance

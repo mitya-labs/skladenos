@@ -1,0 +1,32 @@
+#!/bin/sh
+# title="Экран: не гасить вкл/выкл"
+# Режим «экран не гаснет, телефон не блокируется»: флаг SXMO sxmo.noidle (хуки unlock/lock тогда не запускают idle_locker)
+# + мьютекс can_suspend «screen-awake» (на случай ручного гашения кнопкой — не уходить в сон).
+# Флаг лежит в ~/.cache и переживает перезагрузку; мьютекс — нет (после ребута ручное гашение снова усыпляет).
+# Ставится в ~/.config/sxmo/userscripts/screen-awake (scripts/powerplan-install).
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" XDG_CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}" SXMO_WM="${SXMO_WM:-sway}"
+# из меню PATH уже как у SXMO; по SSH добавляем хуки устройства (там sxmo_hook_unlock.sh), иначе флаг не применится
+D="${SXMO_DEVICE_NAME:-$(tr '\0' '\n' < /proc/device-tree/compatible | head -1)}"
+H="$HOME/.config/sxmo/hooks"; DH=/usr/share/sxmo/default_hooks
+export PATH="$H/$D:$H:$DH/$D:$DH/three_button_touchscreen:$DH:$PATH"
+# по SSH SWAYSOCK нет: SXMO хранит путь к сокету в файле sxmo.swaysock
+[ -S "${SWAYSOCK:-}" ] || export SWAYSOCK="$(cat "$XDG_RUNTIME_DIR/sxmo.swaysock" 2>/dev/null)"
+. sxmo_common.sh 2>/dev/null
+F="$XDG_CACHE_HOME/sxmo/sxmo.noidle"
+release() { n=0; while sxmo_mutex.sh can_suspend list 2>/dev/null | grep -qx "screen-awake" && [ "$n" -lt 100 ]; do sxmo_mutex.sh can_suspend free "screen-awake"; n=$((n+1)); done; }
+
+case "${1:-toggle}" in
+	toggle) if [ -e "$F" ]; then set -- off; else set -- on; fi ;;
+esac
+case "$1" in
+	on)  touch "$F"; release; sxmo_mutex.sh can_suspend lock "screen-awake"; msg="Экран не гаснет (блокировка выкл)" ;;
+	off) rm -f "$F"; release; msg="Экран гаснет как обычно" ;;
+	status) [ -e "$F" ] && echo on || echo off; exit 0 ;;
+	*) echo "usage: screen-awake [toggle|on|off|status]" >&2; exit 2 ;;
+esac
+# перезапуск стадии unlock: остановить/запустить таймер блокировки (idle_locker) по флагу.
+# Через swaymsg exec — внутри сессии sway: запущенный отсюда swayidle умер бы вместе с SSH-сессией.
+[ "$(cat "${SXMO_STATE:-$XDG_RUNTIME_DIR/sxmo.state}" 2>/dev/null)" = unlock ] && swaymsg exec sxmo_hook_unlock.sh >/dev/null 2>&1
+sxmo_hook_statusbar.sh lockedby >/dev/null 2>&1
+sxmo_notify_user.sh "$msg" 2>/dev/null
+echo "$msg"

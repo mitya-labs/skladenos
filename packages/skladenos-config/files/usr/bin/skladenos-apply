@@ -1,0 +1,276 @@
+#!/usr/bin/env python3
+# skladenos-apply — пользовательские настройки SXMO для skladenOS (Poco F1), слой B пакета skladenos-config.
+# Заменяет пользовательскую часть scripts/sxmo-setup: конфиги и хуки SXMO в ~/.config/sxmo собираются из
+# штатных шаблонов sxmo-utils (/usr/share/sxmo) + файлов пакета (/usr/share/skladenos/skel).
+#   skladenos-apply [--user mobian] [--if-needed] [--force] [--dry-run]
+#   --if-needed  ничего не делать, если для этой версии пакета уже применено (штамп в ~/.config/sxmo/.skladenos-stamp)
+#   --force      перезаписать и файлы, изменённые пользователем (по умолчанию они не трогаются)
+# Файлы, изменённые пользователем после установки (хэш не совпадает с записанным в манифесте), пропускаются и перечисляются.
+# Запускается: skladenos-apply.service до старта sxmo.service (первая загрузка и обновления пакета), postinst пакета.
+# Это единая точка сборки: слой A (системные файлы) — просто файлы пакета, здесь только то, что живёт в домашнем каталоге.
+import argparse, hashlib, json, os, pwd, re, shutil, subprocess, sys
+
+SKEL = "/usr/share/skladenos/skel"
+SXMO = "/usr/share/sxmo"
+WALLPAPER = "/usr/share/skladenos/wallpaper-portrait.png"   # стартовые (портретные); хук поворота переключает на альбомные
+NOTCH_H = os.environ.get("NOTCH_H", "28")
+NOTCH_BG = os.environ.get("NOTCH_BG", "#323232")
+KEYBOARD_ARGS = "-l simple,cyrillic,special,emoji"
+
+
+def pkg_version():
+    try:
+        return subprocess.check_output(["dpkg-query", "-W", "-f=${Version}", "skladenos-config"], text=True,
+                                       stderr=subprocess.DEVNULL).strip() or "dev"
+    except Exception:
+        return "dev"
+
+
+def sha(b):
+    return hashlib.sha256(b).hexdigest()
+
+
+class Ctx:
+    def __init__(self, user, force, dry):
+        pw = pwd.getpwnam(user)
+        self.user, self.uid, self.gid, self.home = user, pw.pw_uid, pw.pw_gid, pw.pw_dir
+        self.cfg = os.path.join(self.home, ".config", "sxmo")
+        self.force, self.dry = force, dry
+        self.manifest_path = os.path.join(self.cfg, ".skladenos-manifest")
+        try:
+            self.manifest = json.load(open(self.manifest_path))
+        except Exception:
+            self.manifest = {}
+        self.skipped, self.written = [], []
+
+    def mkdirs(self, path):
+        parts, p = [], path
+        while p and not os.path.isdir(p) and p != self.home and p != "/":
+            parts.append(p); p = os.path.dirname(p)
+        for d in reversed(parts):
+            if not self.dry:
+                os.mkdir(d); os.chown(d, self.uid, self.gid)
+
+    def install(self, dst, data, mode=0o644):
+        """Записать файл, если он не изменён пользователем (хэш совпадает с манифестом) или его нет. data: bytes."""
+        if isinstance(data, str):
+            data = data.encode("utf-8")
+        if os.path.lexists(dst):
+            cur = open(dst, "rb").read() if os.path.isfile(dst) else b""
+            if cur == data:
+                self.manifest[dst] = sha(data); return
+            if not self.force and self.manifest.get(dst) != sha(cur):
+                self.skipped.append(dst); return
+        self.mkdirs(os.path.dirname(dst))
+        if not self.dry:
+            if os.path.islink(dst):
+                os.unlink(dst)
+            with open(dst, "wb") as f:
+                f.write(data)
+            os.chmod(dst, mode); os.chown(dst, self.uid, self.gid)
+        self.manifest[dst] = sha(data); self.written.append(dst)
+
+    def symlink(self, dst, target):
+        self.mkdirs(os.path.dirname(dst))
+        if os.path.lexists(dst):
+            return
+        if not self.dry:
+            os.symlink(target, dst); os.lchown(dst, self.uid, self.gid)
+        self.written.append(dst)
+
+    def save(self):
+        if self.dry:
+            return
+        self.mkdirs(self.cfg)
+        with open(self.manifest_path, "w") as f:
+            json.dump(self.manifest, f, indent=1, sort_keys=True)
+        os.chown(self.manifest_path, self.uid, self.gid)
+
+
+def read(path):
+    return open(path, encoding="utf-8").read()
+
+
+def configversion(path):
+    for line in read(path).splitlines()[:5]:
+        m = re.match(r"^#\s*configversion:\s*(\S+)", line)
+        if m:
+            return m.group(1)
+    return ""
+
+
+# ---------------------------------------------------------------- sway ----
+def patch_sway(s):
+    # обои: swaybg, запущенный самим sway, на ядре 7.2 рисует чёрное, из отдельного user-юнита — нормально (STATE п.102–103)
+    s = re.sub(r"(?m)^output [^ ]* bg .*\n", "", s)
+    s += ("# Обои (STATE п.103): swaybg от самого sway рисует чёрное; из отдельного user-юнита рисует. Свой фоновый swaybg sway убираем.\n"
+          'exec_always sh -c "sleep 2; systemctl --user stop sxmo-wallpaper; pkill -x swaybg; exec systemd-run --user --collect '
+          '--unit=sxmo-wallpaper -E WAYLAND_DISPLAY -E XDG_RUNTIME_DIR swaybg -o DSI-1 -i %s -m fill"\n' % WALLPAPER)
+    # вырез: бар notch + основной бар под ним
+    H, BG = NOTCH_H, NOTCH_BG
+    s = re.sub(r"(?ms)^# --- [^\n]*notch[^\n]*\n", "", s)                      # старый комментарий
+    s = re.sub(r"(?ms)^bar notch \{\n.*?^\}\n\n?", "", s)                    # старый бар notch (любая версия)
+    notch = ("# --- заливка под челку/скругления и часы справа (scripts/sxmo-setup) ---\n"
+             "bar notch {\n    position top\n    mode overlay\n    height %s\n    workspace_buttons no\n    binding_mode_indicator no\n"
+             "    status_command /usr/bin/sxmo-notch-clock\n    pango_markup enabled\n    font pango:Monospace 11\n"
+             "    colors {\n        statusline #ffffff\n        background %s\n    }\n}\n\n" % (H, BG))
+    m = re.search(r"(?ms)^bar \{\n.*?^\}\n", s)
+    mb = m.group(0)
+    mb2 = re.sub(r"(?m)^    gaps [0-9 ]+\n", "", mb)
+    mb2 = re.sub(r"(?m)^    status_edge_padding [0-9]+\n", "", mb2)
+    mb2 = mb2.replace("    position top\n", "    position top\n    gaps %s 0 0 0\n" % H, 1)
+    mb2 = re.sub(r"(?m)^    status_command .*\n", "    status_command /usr/bin/sxmo-status-padded\n", mb2, count=1)
+    s = s.replace(mb, notch + mb2, 1)
+    # клавиатуры, кнопка питания, окна, старт в альбомной, раскладка в баре, окна в безопасной зоне
+    s += '''
+# Bluetooth / USB клавиатуры: us+ru, CapsLock переключает (из sxmo-configs)
+input type:keyboard {
+    xkb_layout "us,ru"
+    xkb_options compose:rwin,grp:caps_toggle
+}
+'''
+    s += '''
+# Super+Escape = кнопка питания (как физическая: sxmo_multikey, 1/2/3 нажатия; работает и при блокировке)
+bindsym --locked $mod+Escape exec sxmo_multikey.sh powerbutton powerbutton_one powerbutton_two powerbutton_three
+'''
+    s = re.sub(r"(?m)^(\s*bindsym \$mod\+p exec sxmo_appmenu\.sh)$", r"\1\n    bindsym $mod+Shift+p exec sxmo_appmenu.sh sys", s, count=1)
+    s += '''
+# Super+F = окно на весь экран / обратно (STATE п.119)
+bindsym $mod+f fullscreen toggle
+'''
+    s += '''
+# Старт в альбомной ориентации (челка слева). Через 4 с — после портретных обоев (exec_always выше, sleep 2),
+# иначе они перебьют альбомные из sxmo_hook_rotate.sh. exec, не exec_always: reload не поворачивает заново.
+# Отключить: закомментировать строку.
+exec sh -c "sleep 4; sxmo_rotate.sh rotright"
+'''
+    s += '''
+# Язык внешней клавиатуры в баре в альбомной ориентации (STATE п.127); юнит — чтобы reload не плодил копии
+exec_always sh -c "systemctl --user stop sxmo-kbd-lang; exec systemd-run --user --collect --unit=sxmo-kbd-lang -E WAYLAND_DISPLAY -E XDG_RUNTIME_DIR -E SWAYSOCK -E PATH /usr/bin/sxmo_kbd_lang.sh watch"
+
+# Окна в безопасной зоне выреза: fullscreen снимается, floating зажимается в рабочую область (sxmo-safe-area)
+exec_always sh -c "systemctl --user stop sxmo-safe-area; exec systemd-run --user --collect --unit=sxmo-safe-area -E WAYLAND_DISPLAY -E XDG_RUNTIME_DIR -E SWAYSOCK -E PATH /usr/bin/sxmo-safe-area daemon"
+'''
+    return s
+
+
+# ------------------------------------------------------- хук статус-бара ----
+def patch_statusbar(s):
+    # 2b: значок вместо слова failed (нет SIM), красный Wi-Fi на старте, значки screen-awake/ssh-work/SSH
+    old = '\t\t\t\tsxmo_log "WARNING: MODEMSTATUS: $MODEMSTATUS"\n\t\t\t\tprintf "%s" "$MODEMSTATUS"\n'
+    new = '\t\t\t\t# patched (scripts/sxmo-setup): без SIM модем в состоянии failed — вместо слова показываем значок\n\t\t\t\tprintf "%s" "${icon_modem_nomodem:-$MODEMSTATUS}"\n'
+    if old not in s:
+        sys.exit("блок FAILED/UNKNOWN не найден (версия SXMO изменилась?)")
+    s = s.replace(old, new, 1)
+    # значок Wi-Fi красный на старте: nmcli уже сообщает «connected», а operstate ещё не up (и событие больше не повторяется)
+    wo = '\tcase "$(cat "/sys/class/net/$2/operstate")" in\n\t\t"up")\n'
+    wn = '\t# patched (scripts/sxmo-setup): на старте nmcli уже connected (state 100), а operstate ещё не up — считаем подключённым\n\tcase "$(cat "/sys/class/net/$2/operstate")$(nmcli -g GENERAL.STATE device show "$2" 2>/dev/null | cut -d" " -f1)" in\n\t\t"up"*|*100)\n'
+    if wo not in s:
+        sys.exit("set_wifi не найден (версия SXMO изменилась?)")
+    s = s.replace(wo, wn, 1)
+    # режим «экран не гаснет» (userscripts/screen-awake): значок кофе по флагу sxmo.noidle (переживает ребут), сам мьютекс не показываем;
+    # мьютекс phone-nosleep «ssh-work» — значком «сон выключен» вместо обрезанного «ssh-wor…»
+    lo = '\tsxmo_mutex.sh can_suspend list | sort -u | while read -r line; do\n\t\tcase "$line" in\n'
+    ln = ('\t# patched (scripts/sxmo-setup): значок режима screen-awake (флаг sxmo.noidle)\n'
+          '\t{ [ -e "${XDG_CACHE_HOME:-$HOME/.cache}/sxmo/sxmo.noidle" ] && printf "%s \\n" "${icon_awake:-󰅶}"\n'
+          '\tsxmo_mutex.sh can_suspend list | sort -u | while read -r line; do\n\t\tcase "$line" in\n'
+          '\t\t\t"screen-awake")\n\t\t\t\t;;\n'
+          '\t\t\t"ssh-work")\n\t\t\t\tprintf "%s \\n" "${icon_nosleep:-󰒳}" # phone-nosleep on\n\t\t\t\t;;\n')
+    le = '\tdone | sort -u | tr -d \'\\n\' | sxmo_status.sh add 41-lockedby-status\n'
+    if lo not in s or le not in s:
+        sys.exit("set_lockedby не найден (версия SXMO изменилась?)")
+    # SSH/Mosh-сессия: вместо буквы S значок консоли с сетью (nf-md-console_network)
+    so = '\t\t\t"SSH"*|"Mosh"*)\n\t\t\t\tprintf "S\\n"\n'
+    if so not in s:
+        sys.exit("метка SSH в set_lockedby не найдена (версия SXMO изменилась?)")
+    s = s.replace(so, '\t\t\t"SSH"*|"Mosh"*)\n\t\t\t\tprintf "%s \\n" "${icon_ssh:-󰢩}"\n', 1)
+    # LC_ALL=C: в ru_RU sort -u считает разные глифы Nerd Font (PUA) равными и выкидывает один из значков
+    s = s.replace(lo, ln, 1).replace(le, '\tdone; } | LC_ALL=C sort -u | tr -d \'\\n\' | sxmo_status.sh add 41-lockedby-status\n', 1)
+    # 2c: часы и кружок состояния живут в баре notch; в альбомной (бар notch скрыт) — в основном баре
+    h = s
+    # set_state: красная плашка состояния заменена кружком в баре notch (sxmo-notch-clock)
+    if "когда notch скрыт (альбомная" not in h:
+        h = re.sub(r"(?ms)^set_state\(\) \{\n.*?^\}\n",
+                    "set_state() {\n\t# patched (scripts/sxmo-setup): состояние показывает кружок в баре notch (sxmo-notch-clock);\n\t# когда notch скрыт (альбомная ориентация, sxmo.notch.hidden) — кружок в основном баре\n\tif [ -e \"${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/sxmo.notch.hidden\" ]; then\n\t\tif grep -q unlock \"$SXMO_STATE\"; then COLOR=\"#ffffff\"; else COLOR=\"#ff3b30\"; fi\n\t\tprintf '<span foreground=\"%s\">●</span>' \"$COLOR\" | sxmo_status.sh add 0-state\n\telse\n\t\tsxmo_status.sh del 0-state 2>/dev/null\n\tfi\n\treturn 0\n}\n", h, count=1)
+    old = 'set_time() {\n\tdate "+${SXMO_STATUS_DATE_FORMAT:-%H:%M}" | head -c -1 | sxmo_status.sh add 99-time\n}'
+    new = ('set_time() {\n'
+           '\t# patched (scripts/sxmo-setup): время показывает верхний бар `notch`; когда он скрыт (поворот экрана,\n'
+           '\t# sxmo_hook_rotate.sh создаёт sxmo.notch.hidden) — показываем в основном баре\n'
+           '\tif [ -e "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/sxmo.notch.hidden" ]; then\n'
+           '\t\tdate "+${SXMO_STATUS_DATE_FORMAT:-%H:%M}" | head -c -1 | sxmo_status.sh add 99-time\n'
+           '\telse\n'
+           '\t\tsxmo_status.sh del 99-time 2>/dev/null\n'
+           '\tfi\n'
+           '\treturn 0\n}')
+    if old in h:
+        h = h.replace(old, new, 1)
+    elif "sxmo.notch.hidden" not in h:
+        sys.exit("set_time не найден в хуке (версия SXMO изменилась?)")
+    return h
+
+
+# ------------------------------------------------------------------ main ----
+def apply(ctx):
+    cfg = ctx.cfg
+    hooks = os.path.join(cfg, "hooks")
+    # профиль и конфиги по умолчанию (как sxmo_migrate.sh sync: копируем шаблон, если файла нет)
+    for tpl, dst in (("appcfg/profile_template", cfg + "/profile"), ("appcfg/foot.ini", ctx.home + "/.config/foot/foot.ini")):
+        if not os.path.exists(dst):
+            ctx.install(dst, open(os.path.join(SXMO, tpl), "rb").read())
+    # sway
+    ctx.install(cfg + "/sway", patch_sway(read(SXMO + "/appcfg/sway_template")))
+    # профиль: клавиатурные аргументы (дописываем один раз)
+    prof = cfg + "/profile"
+    if os.path.exists(prof) and not re.search(r"(?m)^export KEYBOARD_ARGS=", read(prof)) and not ctx.dry:
+        with open(prof, "a") as f:
+            f.write('\n# Раскладки экранной клавиатуры (из sxmo-configs)\nexport KEYBOARD_ARGS="%s"\n' % KEYBOARD_ARGS)
+    # foot >= 1.26: секция [colors] переименована в [colors-dark]
+    foot = ctx.home + "/.config/foot/foot.ini"
+    if os.path.isfile(foot) and re.search(r"(?m)^\[colors\]", read(foot)) and not ctx.dry:
+        open(foot, "w", encoding="utf-8").write(re.sub(r"(?m)^\[colors\]", "[colors-dark]", read(foot)))
+    # хуки: статус-бар (из штатного), suspend (rtcwake через sudo), поворот (шаблон + configversion штатного)
+    dh = SXMO + "/default_hooks"
+    ctx.install(hooks + "/sxmo_hook_statusbar.sh", patch_statusbar(read(dh + "/sxmo_hook_statusbar.sh")), 0o755)
+    ctx.install(hooks + "/sxmo_hook_suspend.sh", read(dh + "/sxmo_hook_suspend.sh").replace("rtcwake -m mem", "sudo -n rtcwake -m mem"), 0o755)
+    ctx.install(hooks + "/sxmo_hook_rotate.sh",
+                read(SKEL + "/hooks/sxmo_hook_rotate.sh").replace("@CONFIGVERSION@", configversion(dh + "/sxmo_hook_rotate.sh")), 0o755)
+    for n in ("sxmo_wm.sh", "sxmo_hook_scripts.sh"):
+        ctx.install(hooks + "/" + n, open(SKEL + "/hooks/" + n, "rb").read(), 0o755)
+    # хуки кнопок и жестов для beryllium: каталога в пакете нет → как у OnePlus 6 (кнопки молчали без него)
+    for dev in ("xiaomi,beryllium-ebbg", "xiaomi,beryllium-tianma"):
+        ctx.symlink(hooks + "/" + dev, dh + "/oneplus,enchilada")
+    # пункты меню Scripts и помощники
+    for root, _, files in os.walk(SKEL + "/userscripts"):
+        for f in files:
+            src = os.path.join(root, f); rel = os.path.relpath(src, SKEL + "/userscripts")
+            ctx.install(cfg + "/userscripts/" + rel, open(src, "rb").read(), 0o755)
+    for f in os.listdir(SKEL + "/bin"):
+        ctx.install(ctx.home + "/.local/bin/" + f, open(SKEL + "/bin/" + f, "rb").read(), 0o755)
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--user", default=os.environ.get("SKLADENOS_USER", "mobian"))
+    ap.add_argument("--if-needed", action="store_true")
+    ap.add_argument("--force", action="store_true")
+    ap.add_argument("--dry-run", action="store_true")
+    a = ap.parse_args()
+    try:
+        ctx = Ctx(a.user, a.force, a.dry_run)
+    except KeyError:
+        print("skladenos-apply: пользователя %s нет, пропуск" % a.user); return 0
+    stamp = os.path.join(ctx.cfg, ".skladenos-stamp"); ver = pkg_version()
+    if a.if_needed and os.path.isfile(stamp) and read(stamp).strip() == ver:
+        return 0
+    apply(ctx)
+    if not a.dry_run:
+        ctx.save()
+        open(stamp, "w").write(ver + "\n"); os.chown(stamp, ctx.uid, ctx.gid)
+    print("skladenos-apply: записано %d, пропущено (изменено пользователем) %d" % (len(ctx.written), len(ctx.skipped)))
+    for p in ctx.skipped:
+        print("  пропущен: %s (чтобы перезаписать: skladenos-apply --force)" % p)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -9,6 +9,8 @@ configure)
 	rm -f /var/lib/alsa/asound.state
 	# suspend по rtcwake: группа clock для /dev/rtc0
 	if getent passwd mobian >/dev/null 2>&1; then usermod -aG clock mobian || true; fi
+	# пользовательские настройки SXMO (если пользователь уже есть; иначе их применит skladenos-apply.service на загрузке)
+	/usr/bin/skladenos-apply --if-needed || true
 	;;
 esac
 #DEBHELPER#

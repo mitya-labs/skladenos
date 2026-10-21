@@ -1,0 +1,14 @@
+[Unit]
+Description=skladenOS: применить пользовательские настройки SXMO (конфиги и хуки в ~/.config/sxmo)
+After=local-fs.target
+Before=sxmo.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# пользователь по умолчанию mobian; другой — через /etc/default/skladenos (SKLADENOS_USER=...)
+EnvironmentFile=-/etc/default/skladenos
+ExecStart=/usr/bin/skladenos-apply --if-needed
+
+[Install]
+WantedBy=multi-user.target

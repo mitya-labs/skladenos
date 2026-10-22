@@ -238,9 +238,20 @@ def apply(ctx):
         with open(prof, "a") as f:
             f.write('\n# Раскладки экранной клавиатуры (из sxmo-configs)\nexport KEYBOARD_ARGS="%s"\n' % KEYBOARD_ARGS)
     # foot >= 1.26: секция [colors] переименована в [colors-dark]
+    # (раньше тут было open(foot, "w").write(re.sub(..., read(foot))): open() обнулял файл до чтения -> пустой foot.ini,
+    # SXMO принимал его за устаревший и создавал foot.ini.needs-migration с уведомлением «Config needs migration»)
     foot = ctx.home + "/.config/foot/foot.ini"
-    if os.path.isfile(foot) and re.search(r"(?m)^\[colors\]", read(foot)) and not ctx.dry:
-        open(foot, "w", encoding="utf-8").write(re.sub(r"(?m)^\[colors\]", "[colors-dark]", read(foot)))
+    if os.path.isfile(foot) and not ctx.dry:
+        cur = read(foot)
+        if re.search(r"(?m)^\[colors\]", cur) and not re.search(r"(?m)^\[colors-dark\]", cur):
+            new = re.sub(r"(?m)^\[colors\]", "[colors-dark]", cur)
+            if new.strip():
+                with open(foot, "w", encoding="utf-8") as f:
+                    f.write(new)
+    # хвост прежней ошибки: пустой foot.ini.needs-migration (0 байт) не содержит правок пользователя — убрать, чтобы не было уведомления
+    nm = foot + ".needs-migration"
+    if os.path.isfile(nm) and os.path.getsize(nm) == 0 and not ctx.dry:
+        os.unlink(nm)
     # хуки: статус-бар (из штатного), suspend (rtcwake через sudo), поворот (шаблон + configversion штатного)
     dh = SXMO + "/default_hooks"
     ctx.install(hooks + "/sxmo_hook_statusbar.sh", patch_statusbar(read(dh + "/sxmo_hook_statusbar.sh")), 0o755)

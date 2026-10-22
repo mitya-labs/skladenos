@@ -1,0 +1,19 @@
+[Unit]
+Description=skladenOS: NVM Bluetooth для beryllium (подмена /lib/firmware/qca/crnv21.bin файлом из droid-juicer)
+# Раньше udev coldplug, чтобы hci_uart взял уже подменённый файл без перезагрузки модуля.
+# After=droid-juicer.service нельзя (цикл: droid-juicer идёт после basic.target); он сам перезагружает телефон
+# после извлечения, так что подмена происходит на следующей загрузке.
+DefaultDependencies=no
+After=systemd-remount-fs.service
+Before=systemd-udev-trigger.service sysinit.target
+Conflicts=shutdown.target
+Before=shutdown.target
+ConditionPathExists=/lib/firmware/updates/qca/beryllium/crnv21.bin
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/skladenos-bt-nvm
+
+[Install]
+WantedBy=sysinit.target

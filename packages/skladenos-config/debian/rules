@@ -12,3 +12,4 @@ override_dh_installsystemd:
 	dh_installsystemd --name=tas2559-config
 	dh_installsystemd --name=skladenos-apply
 	dh_installsystemd --name=skladenos-sshd-policy
+	dh_installsystemd --name=skladenos-bt-nvm

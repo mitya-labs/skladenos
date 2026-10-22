@@ -4,7 +4,8 @@
 FLAG=/var/lib/skladenos/firstboot-done
 CONF=/etc/ssh/sshd_config.d/10-skladenos.conf
 [ -e "$FLAG" ] || exit 0
-[ -e "$CONF" ] || exit 0
+# PathExists перезапускает службу, пока флаг существует (start-limit-hit): когда ограничения уже нет — выключаем path-юнит
+[ -e "$CONF" ] || { systemctl disable --now skladenos-sshd-policy.path >/dev/null 2>&1; exit 0; }
 rm -f "$CONF"
 # перечитать конфиг, если sshd запущен (в chroot образа systemctl не сработает — не страшно)
 systemctl try-reload-or-restart ssh.service >/dev/null 2>&1 || true

@@ -1,0 +1,18 @@
+#!/bin/sh
+# Bluetooth QCA WCN3990 на beryllium: ядро грузит общий /lib/firmware/qca/crnv21.bin (пакет firmware-atheros),
+# а NVM для этой платы droid-juicer кладёт в /lib/firmware/updates/qca/beryllium/crnv21.bin (STATE п.57-59).
+# Подменяем общий файл, только если отличается (cmp). Вызывается skladenos-bt-nvm.service на каждой загрузке:
+# обновление firmware-atheros возвращает оригинал, при следующей загрузке подмена повторится.
+SRC=/lib/firmware/updates/qca/beryllium/crnv21.bin
+DST=/lib/firmware/qca/crnv21.bin
+[ -f "$SRC" ] || exit 0
+cmp -s "$SRC" "$DST" && exit 0
+cp -f "$SRC" "$DST.new" && mv -f "$DST.new" "$DST" || { rm -f "$DST.new"; exit 1; }
+echo "skladenos-bt-nvm: $DST заменён файлом $SRC"
+# Если драйвер уже загружен (подмена позже udev) — перезагрузить, чтобы NVM подхватился
+if [ -d /sys/module/hci_uart ] && [ -z "$SKLADENOS_NO_RELOAD" ]; then
+	systemctl stop bluetooth.service >/dev/null 2>&1
+	modprobe -r hci_uart && modprobe hci_uart
+	systemctl try-restart bluetooth.service >/dev/null 2>&1
+fi
+exit 0

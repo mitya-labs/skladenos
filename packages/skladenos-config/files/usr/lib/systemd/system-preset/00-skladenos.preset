@@ -1,0 +1,15 @@
+# skladenOS: SXMO — сессия по умолчанию. На первой загрузке образа (machine-id сброшен) systemd делает preset-all
+# и без этого файла заново включает greetd/phosh поверх sxmo (STATE п.146).
+disable greetd.service
+disable phosh.service
+enable sxmo.service
+# Наши юниты: в Debian нет правила «disable *», так что по умолчанию они и так включаются; явно — на случай появления такого правила
+enable adsp-start.service
+enable slpi-start.service
+enable tas2559-config.service
+enable skladenos-apply.service
+enable skladenos-bt-nvm.service
+enable skladenos-sshd-policy.path
+# Сеть ведёт NetworkManager (usb0/wlan0 «unmanaged» для networkd); systemd-networkd-wait-online впустую ждёт 2 минуты и падает
+disable systemd-networkd.service
+disable systemd-networkd-wait-online.service

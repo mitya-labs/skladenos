@@ -1,5 +1,6 @@
 # Образы и бинарники (десятки ГБ, не для git)
 images/
+images
 *.img
 *.img.xz
 *.tar.xz

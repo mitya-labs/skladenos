@@ -6,8 +6,9 @@
 |---|---|---|
 | `skladenos-artwork` | логотип skladenOS (SVG: знак, горизонтальный/вертикальный, тёмный/светлый фон; иконки hicolor), логотип Mitya Labs (пёс) и фирменные обои «Skladen v2.1» с ним — **все права защищены**, `Section: non-free` (`assets/NOTICE.md`) | собран |
 | `skladenos-wallpapers` | свободные обои «Skladen v2.1» без логотипа — **CC BY-SA 4.0** | собран |
+| `skladenos-fonts` | DejaVu Sans Mono Nerd Font (Regular, Bold) — глифы значков SXMO; `fonts-nerd-symbols` из Debian не подходит (нет Material Design U+F0xxx, проверено на телефоне) | собран |
 | `skladenos-config` | слой A — системные настройки: профиль устройства SXMO, ADSP/SLPI/звук, USB-гаджет, Wi-Fi powersave, вырез, планы питания, SXMO по умолчанию, шимы `superctl`/`doas`, `phone-nosleep`, `phone-usb`, `sxmo-safe-area` | собран, ставится в чистом Debian (smoke-тест) |
-| `skladenos-config` | слой B — `skladenos-apply`: пользовательские настройки SXMO в `~/.config/sxmo` (sway с баром под вырез, хуки статус-бара/поворота/suspend, меню Scripts, клавиатуры, виджет часов), собираются из штатных шаблонов sxmo-utils; юнит `skladenos-apply.service` + postinst | собран и проверен тестом `packages/test-apply.sh` на настоящем sxmo-utils; **не проверен на телефоне**. Не сделаны: иконки Nerd Font |
+| `skladenos-config` | слой B — `skladenos-apply`: пользовательские настройки SXMO в `~/.config/sxmo` (sway с баром под вырез, хуки статус-бара/поворота/suspend, меню Scripts, клавиатуры, виджет часов), собираются из штатных шаблонов sxmo-utils; юнит `skladenos-apply.service` + postinst | собран и проверен тестом `packages/test-apply.sh` на настоящем sxmo-utils; на телефоне проверена генерация и сравнение с живым конфигом (STATE п.140), запуск на экране — нет.  Значки Nerd Font: хук `sxmo_hook_icons.sh` из шаблона + шрифт из `skladenos-fonts` |
 
 Сборка: `packages/build.sh skladenos-config` → `out/packages/*.deb` (нужен Docker). Тест слоя B: `packages/test-apply.sh` (нужны собранные `skladenos-config` и `skladenos-wallpapers`).
 Ядро собирается отдельно: `build/kernel/build.sh` (см. `build/kernel/UPSTREAM`).

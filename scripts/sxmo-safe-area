@@ -8,7 +8,7 @@
 # Сам демон: sxmo-safe-area daemon
 set -euo pipefail
 BIN=/usr/local/bin/sxmo-safe-area
-CFG=/home/mobian/.config/sxmo/sway
+CFG="/home/${PHONE_USER:-mobian}/.config/sxmo/sway"
 case "${1:-}" in
 install)
   if [ "$(uname)" = Darwin ]; then

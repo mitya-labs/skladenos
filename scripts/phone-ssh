@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Команда на телефоне по SSH с паролем (expect, как в mobian-snapshot). PHONE_HOST (по умолчанию 10.66.0.1), PHONE_PASS (по умолчанию 1234).
+# Команда на телефоне по SSH с паролем (expect, как в mobian-snapshot). PHONE_HOST (по умолчанию 10.66.0.1), PHONE_USER (по умолчанию mobian; в новых образах skladen), PHONE_PASS (по умолчанию 1234).
 # Использование: scripts/phone-ssh 'команда'   |   scripts/phone-ssh --put локальный_файл удалённый_путь
 set -euo pipefail
-HOST="${PHONE_HOST:-10.66.0.1}"; export PHONE_PASS="${PHONE_PASS:-1234}"
+HOST="${PHONE_HOST:-10.66.0.1}"; export PHONE_PASS="${PHONE_PASS:-1234}" PHONE_USER="${PHONE_USER:-mobian}"
 run() { /usr/bin/expect -f <(cat <<'EXP'
 set timeout 120
-spawn ssh -o StrictHostKeyChecking=accept-new -o PubkeyAuthentication=no -o ConnectTimeout=10 mobian@[lindex $argv 0] [lindex $argv 1]
+spawn ssh -o StrictHostKeyChecking=accept-new -o PubkeyAuthentication=no -o ConnectTimeout=10 $env(PHONE_USER)@[lindex $argv 0] [lindex $argv 1]
 expect {
   "assword:" { send "$env(PHONE_PASS)\r"; exp_continue }
   eof

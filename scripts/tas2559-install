@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Ставит на телефон юнит tas2559-config (Configuration=1: стерео верх+низ после загрузки). STATE п.97.
 set -euo pipefail
-R="$(cd "$(dirname "$0")/.." && pwd)"; P="$R/scripts/phone-ssh"
+R="$(cd "$(dirname "$0")/.." && pwd)"; P="$R/scripts/phone-ssh"; PHONE_USER="${PHONE_USER:-mobian}"
 "$P" --put "$R/scripts/phone/tas2559-config.service" typec-test/tas2559-config.service | tail -1
-"$P" 'echo 1234 | sudo -S -p "" sh -c "install -m644 /home/mobian/typec-test/tas2559-config.service /etc/systemd/system/; systemctl daemon-reload; systemctl enable --now tas2559-config.service; systemctl is-active tas2559-config.service; journalctl -k --since -20sec --no-pager -q | grep -E \"load new conf\" | tail -1 | sed \"s/.*tas2559 5-004c: //\""' | tail -3
+"$P" 'echo 1234 | sudo -S -p "" sh -c "install -m644 /home/'"$PHONE_USER"'/typec-test/tas2559-config.service /etc/systemd/system/; systemctl daemon-reload; systemctl enable --now tas2559-config.service; systemctl is-active tas2559-config.service; journalctl -k --since -20sec --no-pager -q | grep -E \"load new conf\" | tail -1 | sed \"s/.*tas2559 5-004c: //\""' | tail -3

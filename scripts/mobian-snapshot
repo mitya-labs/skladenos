@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # Снимок корневой ФС Mobian на телефоне + раздела boot → images/snapshots/mobian-<метка>/ на Маке.
-# Работает по SSH (по умолчанию USB-кабель 10.66.0.1, быстрее Wi-Fi); пароль mobian — PHONE_PASS (по умолч. 1234).
+# Работает по SSH (по умолчанию USB-кабель 10.66.0.1, быстрее Wi-Fi); пользователь — PHONE_USER (по умолч. mobian; в новых образах skladen), пароль — PHONE_PASS (по умолч. 1234).
 # Нужны: expect (есть в macOS), на телефоне bash/tar/zstd/sha256sum.
 #
 #   scripts/mobian-snapshot [хост=10.66.0.1]
 #   NOTE="что нового в этом снимке (п.STATE)" scripts/mobian-snapshot   # описание → <снимок>/ABOUT.txt
 #
+# Не входит: тома podman (~/.local/share/containers/storage/volumes, у нас skladen-home со Steam на ~57 ГБ — 22.10 из-за него снимок забил диск телефона).
 # Что делает: архив `/` (tar + zstd -3, xattrs/acls, без /proc /sys /dev /run /tmp и кеша apt) и `dd` раздела boot
 # собираются на телефоне в /var/tmp (≈2.5–3 ГБ + ~60 МБ), затем копируются на Мак (scp), сверяются sha256, временные
 # файлы на телефоне удаляются. Снимок «живой» (система работает): tar может вернуть код 1 (файл менялся при чтении) — это норма.
@@ -29,7 +30,8 @@ start)
   rm -f snap.*
   nohup bash -c 'set -o pipefail; cd / && tar --xattrs --acls --numeric-owner --one-file-system -cpf - \
       --exclude=./proc/* --exclude=./sys/* --exclude=./dev/* --exclude=./run/* --exclude=./tmp/* \
-      --exclude=./var/tmp/snap.* --exclude=./var/cache/apt/archives/* . | zstd -3 -T0 -q > /var/tmp/snap.tar.zst
+      --exclude=./var/tmp/snap.* --exclude=./var/cache/apt/archives/* \
+      --exclude=./home/*/.local/share/containers/storage/volumes/* . | zstd -3 -T0 -q > /var/tmp/snap.tar.zst
       echo $? > /var/tmp/snap.rc' > /var/tmp/snap.log 2>&1 < /dev/null &
   echo started ;;
 status)
@@ -60,7 +62,7 @@ TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 cat > "$TMP/ssh.exp" <<'EXP'
 #!/usr/bin/expect -f
 set timeout 900
-spawn ssh -o StrictHostKeyChecking=accept-new -o PubkeyAuthentication=no -o ConnectTimeout=10 mobian@[lindex $argv 0] [lindex $argv 1]
+spawn ssh -o StrictHostKeyChecking=accept-new -o PubkeyAuthentication=no -o ConnectTimeout=10 $env(PHONE_USER)@[lindex $argv 0] [lindex $argv 1]
 expect {
   "assword:" { send "$env(PHONE_PASS)\r"; exp_continue }
   eof
@@ -69,14 +71,14 @@ EXP
 cat > "$TMP/scp.exp" <<'EXP'
 #!/usr/bin/expect -f
 set timeout 3600
-spawn scp -o StrictHostKeyChecking=accept-new -o PubkeyAuthentication=no mobian@[lindex $argv 0]:[lindex $argv 1] [lindex $argv 2]
+spawn scp -o StrictHostKeyChecking=accept-new -o PubkeyAuthentication=no $env(PHONE_USER)@[lindex $argv 0]:[lindex $argv 1] [lindex $argv 2]
 expect {
   "assword:" { send "$env(PHONE_PASS)\r"; exp_continue }
   eof
 }
 EXP
 chmod +x "$TMP/ssh.exp" "$TMP/scp.exp"
-export PHONE_PASS="$PASS"
+export PHONE_PASS="$PASS" PHONE_USER="${PHONE_USER:-mobian}"
 rsh() { "$TMP/ssh.exp" "$HOST" "$1" 2>&1 | sed '1,2d' | tr -d '\r'; }   # команда на телефоне, вывод в stdout
 rjob() { rsh "echo '$PASS' | sudo -S -p '' bash /var/tmp/snapjob.sh $1"; }   # шаг job от root
 

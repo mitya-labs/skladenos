@@ -8,7 +8,7 @@
 # Файлы раздаются телефону по USB-сети (python http.server на адресе Мака в сети телефона), потом сервер гасится.
 # configversion в хуке приводится к версии Mobian-хука (иначе SXMO пометит файл .needs-migration и вернёт эмодзи).
 # Откат: на телефоне `rm ~/.config/sxmo/hooks/sxmo_hook_icons.sh` и перезапуск sxmo (шрифт можно оставить).
-# Нужны: 7zz (7-Zip), python3, expect, на телефоне wget. Пароль mobian — PHONE_PASS (по умолч. 1234).
+# Нужны: 7zz (7-Zip), python3, expect, на телефоне wget. Пользователь — PHONE_USER (по умолч. mobian), пароль — PHONE_PASS (по умолч. 1234).
 set -euo pipefail
 
 HOST="${1:-10.66.0.1}"
@@ -53,13 +53,13 @@ sleep 1
 cat > "$TMP/ssh.exp" <<'EXP'
 #!/usr/bin/expect -f
 set timeout 300
-spawn ssh -o StrictHostKeyChecking=accept-new -o PubkeyAuthentication=no -o ConnectTimeout=10 mobian@[lindex $argv 0] [lindex $argv 1]
+spawn ssh -o StrictHostKeyChecking=accept-new -o PubkeyAuthentication=no -o ConnectTimeout=10 $env(PHONE_USER)@[lindex $argv 0] [lindex $argv 1]
 expect {
   "assword:" { send "$env(PHONE_PASS)\r"; exp_continue }
   eof
 }
 EXP
-chmod +x "$TMP/ssh.exp"; export PHONE_PASS="$PASS"
+chmod +x "$TMP/ssh.exp"; export PHONE_PASS="$PASS" PHONE_USER="${PHONE_USER:-mobian}"
 
 REMOTE='set -e
 D=/usr/local/share/fonts/dejavu-sans-mono-nerd

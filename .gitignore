@@ -14,3 +14,7 @@ logs/
 
 # Результаты сборки (.deb, образы)
 out/
+
+# Python
+__pycache__/
+*.pyc

@@ -1,0 +1,123 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: Nerd Fonts (DejaVu Sans Mono Nerd Font)
+Source: https://github.com/ryanoasis/nerd-fonts
+Comment: В пакете два шрифта (Regular, Bold) версии "Version 2.37;Nerd Fonts 3.4.0" — DejaVu Sans Mono 2.37,
+ пропатченный font-patcher из Nerd Fonts 3.4.0; файлы взяты без изменений из пакета ttf-dejavu-nerd (postmarketOS).
+ Тексты лицензий лежат в /usr/share/doc/skladenos-fonts/ (сверены с тегом v3.4.0 репозитория Nerd Fonts,
+ коммит fa7b859; каталоги src/glyphs/* и patched-fonts/DejaVuSansMono; ранее брались с master, adbd16a:
+ по сверке отличается только NerdFonts-license-audit.md, он заменён версией из тега). Сводка Nerd Fonts по лицензиям наборов значков —
+ NerdFonts-license-audit.md. Шрифт переименован ("DejaVuSansM Nerd Font", без слов "Bitstream" и "Vera"),
+ как требует лицензия Bitstream Vera для изменённых версий.
+
+Files: usr/share/fonts/truetype/skladenos-nerd/*
+Copyright: 2003 Bitstream, Inc.
+ DejaVu changes: public domain (Tavmjong Bah and others)
+ 2014-2026 Ryan L McIntyre and Nerd Fonts contributors
+License: Bitstream-Vera and MIT
+ Basic font: DejaVu Sans Mono (Bitstream Vera license, see Bitstream-Vera-DejaVu-LICENSE.txt, the text is also
+ embedded in the font's name table). Patcher and project files: MIT (NerdFonts-LICENSE.txt). The glyphs
+ added by the patcher come from the sets listed below, each under its own license.
+
+Files: usr/share/fonts/truetype/skladenos-nerd/*
+Comment: Glyph set — Material Design Icons (U+F0001–F1AF0 and others)
+Copyright: Pictogrammers
+License: Apache-2.0
+ Pictogrammers Free License (Apache-2.0 for the icon collection, see MaterialDesign-Pictogrammers-LICENSE.txt).
+
+Files: usr/share/fonts/truetype/skladenos-nerd/*
+Comment: Glyph set — Font Awesome Free
+Copyright: Fonticons, Inc.
+License: CC-BY-4.0 and OFL-1.1 and MIT
+ Icons: CC BY 4.0; fonts: SIL OFL 1.1; code: MIT. See FontAwesome-Free-LICENSE.txt.
+ Nerd Fonts uses the CC BY 4.0 icons (attribution: https://fontawesome.com, Fonticons, Inc.).
+
+Files: usr/share/fonts/truetype/skladenos-nerd/*
+Comment: Glyph set — Codicons (VS Code)
+Copyright: Microsoft Corporation
+License: CC-BY-4.0
+ See Codicons-CC-BY-4.0.txt.
+
+Files: usr/share/fonts/truetype/skladenos-nerd/*
+Comment: Glyph set — Octicons
+Copyright: 2023 GitHub Inc.
+License: MIT
+ See Octicons-MIT.txt.
+
+Files: usr/share/fonts/truetype/skladenos-nerd/*
+Comment: Glyph set — Powerline Extra Symbols
+Copyright: 2016 Ryan L McIntyre
+License: MIT
+ See PowerlineExtra-MIT.txt.
+
+Files: usr/share/fonts/truetype/skladenos-nerd/*
+Comment: Glyph set — Powerline Symbols
+Copyright: 2013 Kim Silkebækken and other contributors
+License: MIT
+ See PowerlineSymbols-MIT.txt.
+
+Files: usr/share/fonts/truetype/skladenos-nerd/*
+Comment: Glyph set — Pomicons
+Copyright: 2021 Gabriele Lana
+License: OFL-1.1
+ With Reserved Font Name "Pomicons". See Pomicons-OFL-1.1.txt.
+
+Files: usr/share/fonts/truetype/skladenos-nerd/*
+Comment: Glyph set — Weather Icons
+Copyright: Erik Flowers
+License: OFL-1.1
+ See WeatherIcons-OFL-1.1.txt.
+
+Files: usr/share/fonts/truetype/skladenos-nerd/*
+Comment: Glyph set - Devicons (U+E700-E8EF; Nerd Fonts 'devicons.otf', v2.16.0.custom, from the non-linemark
+ icons of https://github.com/devicons/devicon). Part of the set (src/glyphs/devicons/vorillaz) comes from the
+ older https://github.com/vorillaz/devicons (Theodore Vorillas), see below.
+Copyright: 2015 konpa
+License: MIT
+ See Devicons-MIT.txt (verbatim LICENSE of devicons/devicon, checked at commit 6a37858).
+ The Devicon project also includes brand logos; these are trademarks of their owners.
+
+Files: usr/share/fonts/truetype/skladenos-nerd/*
+Comment: Glyph set - Devicons, older icons from vorillaz/devicons (a few icons, Nerd Fonts says v1.8.1).
+ UNVERIFIED: the upstream LICENSE (added to the repository only in 2026, commit 8947499) is the MIT text
+ WITHOUT a copyright line; the author is Theodore Vorillas (per git history). Holder is therefore not
+ stated here as a fact.
+Copyright: Theodore Vorillas (author per git history; no copyright notice in upstream LICENSE)
+License: MIT
+ See DeviconsVorillaz-MIT.txt (verbatim, vorillaz/devicons LICENSE, commit ed0c567).
+
+Files: usr/share/fonts/truetype/skladenos-nerd/*
+Comment: Glyph set - Font Awesome Extension (U+E200-E2A9; https://github.com/AndrelzGava/font-awesome-extension)
+Copyright: 2017 Andre Luiz Gava
+License: MIT
+ See FontAwesomeExtension-MIT.txt (verbatim LICENCE, checked at commit 09d8024).
+
+Files: usr/share/fonts/truetype/skladenos-nerd/*
+Comment: Glyph set - IEC Power Symbols (U+23FB-23FE, U+2B58; https://unicodepowersymbol.com/,
+ sources https://github.com/jloughry/Unicode). The site links to LICENSE.txt of that repository; the site
+ says only "free to use and reuse" for the font, the repository-wide MIT is the formal text (the font file
+ itself carries no license in its name table: "UnicodeIECsymbol Version 1.0"). Proposal by Joe Loughry,
+ website and idea by Terence Eden; Terence Eden is not named in the LICENSE.
+Copyright: 2013 Joe Loughry
+License: MIT
+ See IECPowerSymbols-MIT.txt (verbatim, jloughry/Unicode LICENSE.txt).
+
+Files: usr/share/fonts/truetype/skladenos-nerd/*
+Comment: Glyph set - Seti-UI + Custom (U+E5FA-E6B8; Nerd Fonts 'original-source.otf', icons of
+ https://github.com/jesseweed/seti-ui modified by Nerd Fonts and extended with own icons from src/svgs).
+ The own/modified parts are released by Nerd Fonts under MIT (see NerdFonts-LICENSE.txt).
+Copyright: 2014 Jesse Weed
+License: MIT
+ See SetiUI-MIT.txt (verbatim LICENSE.md, checked at commit 2d6c5e6).
+
+Files: usr/share/fonts/truetype/skladenos-nerd/*
+Comment: Glyph set - Font Logos (U+F300-F381; https://github.com/Lukas-W/font-logos). Nerd Fonts license-audit
+ lists it as "Unlicensed", but upstream has a LICENSE file since 2016-03-10 (commit 0b10f1c, "Add License
+ (Unlicense)"), package.json "license": "Unlicense". It is the Unlicense (public domain dedication), which
+ permits distribution. The Unlicense covers the font work; the logos themselves depicted in it are trademarks
+ of their owners (upstream README: "should only be used to represent the company or product to which they
+ refer"). The font is mainly by Lukas Schwaiger (Lukas W) with contributions of Fini Jastrow, hasecilu and
+ others (git history). Contributors did not sign a separate grant; the repository LICENSE covers the repo as a whole.
+Copyright: none claimed (public domain dedication by the authors)
+License: Unlicense
+ See FontLogos-Unlicense.txt (verbatim, commit d3bf5d2).
+

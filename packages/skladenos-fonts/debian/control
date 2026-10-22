@@ -1,0 +1,15 @@
+Source: skladenos-fonts
+Section: fonts
+Priority: optional
+Maintainer: Dmitrii Trifonov <53140442+DmitriiTrifonov@users.noreply.github.com>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+
+Package: skladenos-fonts
+Architecture: all
+Depends: ${misc:Depends}
+Description: skladenOS: DejaVu Sans Mono Nerd Font для значков SXMO
+ Шрифт DejaVu Sans Mono, пропатченный Nerd Fonts (Regular, Bold). Нужен для глифов в
+ sxmo_hook_icons.sh (Material Design U+F0xxx и др.). Debian-пакет fonts-nerd-symbols эти
+ глифы не покрывает (проверено на телефоне), поэтому шрифт лежит отдельным пакетом.

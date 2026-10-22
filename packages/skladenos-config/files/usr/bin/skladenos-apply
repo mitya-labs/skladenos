@@ -237,6 +237,9 @@ def apply(ctx):
     ctx.install(hooks + "/sxmo_hook_suspend.sh", read(dh + "/sxmo_hook_suspend.sh").replace("rtcwake -m mem", "sudo -n rtcwake -m mem"), 0o755)
     ctx.install(hooks + "/sxmo_hook_rotate.sh",
                 read(SKEL + "/hooks/sxmo_hook_rotate.sh").replace("@CONFIGVERSION@", configversion(dh + "/sxmo_hook_rotate.sh")), 0o755)
+    # значки: глифы Nerd Font (шрифт — пакет skladenos-fonts); configversion штатного хука, иначе SXMO вернёт эмодзи
+    ctx.install(hooks + "/sxmo_hook_icons.sh",
+                read(SKEL + "/hooks/sxmo_hook_icons.sh").replace("@CONFIGVERSION@", configversion(dh + "/sxmo_hook_icons.sh")), 0o755)
     for n in ("sxmo_wm.sh", "sxmo_hook_scripts.sh"):
         ctx.install(hooks + "/" + n, open(SKEL + "/hooks/" + n, "rb").read(), 0o755)
     # хуки кнопок и жестов для beryllium: каталога в пакете нет → как у OnePlus 6 (кнопки молчали без него)

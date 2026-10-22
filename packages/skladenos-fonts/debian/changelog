@@ -1,0 +1,5 @@
+skladenos-fonts (0.1.0) unstable; urgency=medium
+
+  * DejaVu Sans Mono Nerd Font (Regular, Bold): глифы значков SXMO (хук sxmo_hook_icons.sh).
+
+ -- Dmitrii Trifonov <53140442+DmitriiTrifonov@users.noreply.github.com>  Thu, 22 Oct 2026 16:20:00 +0300

@@ -8,7 +8,7 @@ Rules-Requires-Root: no
 
 Package: skladenos-config
 Architecture: all
-Depends: ${misc:Depends}, skladenos-wallpapers, sxmo-utils, jq, python3, sudo, systemd, swaybg, network-manager
+Depends: ${misc:Depends}, skladenos-wallpapers, skladenos-fonts, sxmo-utils, jq, python3, sudo, systemd, swaybg, network-manager
 Recommends: skladenos-artwork, libssc-bin, hexagonrpcd, openssh-server
 Conflicts: doas, superd
 Provides: doas

@@ -6,7 +6,8 @@
 #   boot.img (cmdline с `rw`), userdata.simg.zst, SHA256SUMS, FLASH.txt, MANIFEST.txt (пакеты), flash -> . (симлинк, чтобы
 #   `scripts/snapshot-flash out/image/<метка>` работал без изменений: он ищет <каталог>/flash/).
 # Прошивка (СТИРАЕТ телефон): scripts/snapshot-flash out/image/<метка>
-# Переменные: VARIANT=ebbg|tianma (панель, по умолчанию ebbg), SSH=1|0 (включить sshd, по умолчанию 1; пароль mobian = 1234 как у Mobian),
+# Переменные: VARIANT=ebbg|tianma (панель, по умолчанию ebbg), SSH=1|0 (включить sshd, по умолчанию 1; пароль пользователя 1234; вход по паролю до смены — только из локальных сетей),
+#   IMG_USER=skladen (имя пользователя по умолчанию, uid 1000; rootfs Mobian приходит с mobian — переименовывается),
 #   EXTRA_PKGS="..." (доп. пакеты из репозиториев), FORCE=1 (не отказываться, если идёт сборка ядра), KEEP_WORK=1 (не удалять рабочие каталоги Docker — нет смысла, контейнер --rm).
 # Что внутри (inner.sh → chroot-stage.sh): Mobian rootfs.img (sparse) → raw → копия в каталог → chroot: apt-mark hold версий, установка
 #   ядра 7.2 + skladenos-* + зависимостей (sxmo-utils, jq, …) → чистка → mke2fs -d (UUID корня тот же, что в cmdline Mobian) → e2fsck → img2simg;
@@ -15,7 +16,7 @@
 set -euo pipefail
 R="$(cd "$(dirname "$0")/../.." && pwd)"
 MODE="${1:-check}"; LABEL="${2:-$(date +%Y%m%d-%H%M)}"
-VARIANT="${VARIANT:-ebbg}"; SSH="${SSH:-1}"; EXTRA_PKGS="${EXTRA_PKGS:-}"
+VARIANT="${VARIANT:-ebbg}"; IMG_USER="${IMG_USER:-skladen}"; SSH="${SSH:-1}"; EXTRA_PKGS="${EXTRA_PKGS:-}"
 case "$VARIANT" in ebbg|tianma) ;; *) echo "VARIANT: ebbg или tianma" >&2; exit 2 ;; esac
 
 MOB="$R/images/mobian"; STAMP=mobian-sdm845-phosh-20260927
@@ -38,7 +39,7 @@ newest() { ls -1 "$@" 2>/dev/null | sort -V | tail -1; }
 
 KDEB="$(newest "$R"/out/kernel/linux-image-7.2-sdm845_*.deb || true)"
 PKGS=()
-for p in skladenos-config skladenos-wallpapers skladenos-fonts skladenos-artwork; do
+for p in skladenos-config skladenos-wallpapers skladenos-fonts skladenos-artwork skladenos-firstboot; do
   d="$(newest "$R"/out/packages/${p}_*.deb || true)"; PKGS+=("$d")
 done
 
@@ -111,7 +112,7 @@ E
   docker run --rm --privileged --platform linux/arm64 \
     -v "$ROOTFS:/in/rootfs.img:ro" -v "$BOOT_SRC:/in/boot-src.img:ro" -v "$STAGE/debs:/in/debs:ro" \
     -v "$R/build/image:/in/scripts:ro" -v "$OUT:/out" \
-    -e UUID="$UUID" -e VARIANT="$VARIANT" -e SSH="$SSH" -e EXTRA_PKGS="$EXTRA_PKGS" -e LABEL="$LABEL" \
+    -e UUID="$UUID" -e VARIANT="$VARIANT" -e IMG_USER="$IMG_USER" -e SSH="$SSH" -e EXTRA_PKGS="$EXTRA_PKGS" -e LABEL="$LABEL" \
     -e GIT_REV="$(git -C "$R" rev-parse --short HEAD 2>/dev/null || echo unknown)" \
     "$IMG" bash /in/scripts/inner.sh 2>&1 | tee "$LOG"
   [ -f "$OUT/userdata.simg" ] && [ -f "$OUT/boot.img" ] || { echo "Docker не выдал boot.img/userdata.simg" >&2; exit 1; }
@@ -137,7 +138,7 @@ cmdline в boot: $CMD
   fastboot -S 100M flash userdata userdata.simg
   fastboot reboot
   rm userdata.simg
-Первая загрузка: ~1-3 мин; droid-juicer извлечёт прошивки и один раз перезагрузит телефон; пользователь mobian, пароль 1234.
+Первая загрузка: ~1-3 мин; droid-juicer извлечёт прошивки и один раз перезагрузит телефон; пользователь $IMG_USER, пароль 1234.
 EOT
   echo "Готово ($(date +%H:%M)): $OUT"; du -sh "$OUT"/* | grep -v flash
   ;;

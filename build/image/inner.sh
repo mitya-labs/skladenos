@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Выполняется ВНУТРИ контейнера debian:stable-slim (--privileged, arm64); запускает build/image/build.sh build.
-# /in/{rootfs.img,boot-src.img,debs/,scripts/} — вход (ro), /out — результат. Env: UUID VARIANT SSH EXTRA_PKGS LABEL GIT_REV.
+# /in/{rootfs.img,boot-src.img,debs/,scripts/} — вход (ro), /out — результат. Env: UUID VARIANT IMG_USER SSH EXTRA_PKGS LABEL GIT_REV.
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 say() { echo; echo "=== [$(date +%H:%M)] $*"; }
@@ -36,7 +36,7 @@ cp /etc/resolv.conf $W/etc/resolv.conf
 mount -t proc proc $W/proc; mount -t sysfs sys $W/sys; mount --rbind /dev $W/dev; mount --make-rslave $W/dev
 cleanup() { umount -R $W/dev $W/sys $W/proc 2>/dev/null || true; }
 trap cleanup EXIT
-chroot $W env SSH="$SSH" EXTRA_PKGS="$EXTRA_PKGS" LABEL="$LABEL" GIT_REV="$GIT_REV" VARIANT="$VARIANT" /bin/bash /tmp/chroot-stage.sh
+chroot $W env IMG_USER="$IMG_USER" SSH="$SSH" EXTRA_PKGS="$EXTRA_PKGS" LABEL="$LABEL" GIT_REV="$GIT_REV" VARIANT="$VARIANT" /bin/bash /tmp/chroot-stage.sh
 cleanup; trap - EXIT
 rm -f $W/etc/resolv.conf; [ -e $W/etc/resolv.conf.skl-orig ] || [ -L $W/etc/resolv.conf.skl-orig ] && mv -T $W/etc/resolv.conf.skl-orig $W/etc/resolv.conf
 rm -rf $W/tmp/skl-debs $W/tmp/chroot-stage.sh
@@ -50,17 +50,26 @@ chk "ядро $KREL: vmlinuz" "[ -s $W/boot/vmlinuz-$KREL ]"
 chk "ядро $KREL: initrd" "[ -s $W/boot/initrd.img-$KREL ]"
 chk "ядро $KREL: модули" "[ -d $W/lib/modules/$KREL ]"
 chk "dtb beryllium-$VARIANT" "[ -s $W/usr/lib/linux-image-$KREL/qcom/sdm845-xiaomi-beryllium-$VARIANT.dtb ]"
+chk "PD: в dtb узел qcom,pmi8998-tcpm (патч 0010)" "grep -aq 'qcom,pmi8998-tcpm' $W/usr/lib/linux-image-$KREL/qcom/sdm845-xiaomi-beryllium-$VARIANT.dtb"
+chk "PD: модуль qcom_pmic_tcpm и зависимости tcpm, aux-hpd-bridge" "grep -E '^kernel/drivers/usb/typec/tcpm/qcom/qcom_pmic_tcpm\.ko(\.xz)?:' $W/lib/modules/$KREL/modules.dep | grep -q tcpm.ko && grep -q aux-hpd-bridge $W/lib/modules/$KREL/modules.dep"
 chk "нет лишних ядер в /lib/modules" "[ \$(ls $W/lib/modules | wc -l) = 1 ]"
 chk "skladenos-apply" "[ -x $W/usr/bin/skladenos-apply ]"
 chk "профиль устройства SXMO" "[ -f $W/usr/bin/sxmo_deviceprofile_xiaomi,beryllium-$VARIANT.sh ]"
 chk "маска rmtfs-dir" "[ \"\$(readlink $W/etc/systemd/system/rmtfs-dir.service)\" = /dev/null ]"
 chk "adsp-start.service" "[ -f $W/usr/lib/systemd/system/adsp-start.service ]"
 chk "обои и шрифт (skladenos-wallpapers, skladenos-fonts)" "grep -q \"^skladenos-wallpapers \" $W/var/lib/skladenos-manifest.txt && grep -q \"^skladenos-fonts \" $W/var/lib/skladenos-manifest.txt"
+chk "мастер первой загрузки (skladenos-firstboot, python3-textual)" "grep -q \"^skladenos-firstboot \" $W/var/lib/skladenos-manifest.txt && grep -q \"^python3-textual \" $W/var/lib/skladenos-manifest.txt && [ -f $W/etc/sway/config.d/60-skladenos-firstboot.conf ] && [ ! -e $W/var/lib/skladenos/firstboot-done ]"
 chk "sxmo-utils, jq, sudo, swaybg, network-manager" "for p in sxmo-utils jq sudo swaybg network-manager; do grep -q \"^\$p \" $W/var/lib/skladenos-manifest.txt || exit 1; done"
 chk "sxmo.service включён" "[ -L $W/etc/systemd/system/graphical.target.wants/sxmo.service ] || ls $W/etc/systemd/system/*.wants/sxmo.service >/dev/null 2>&1"
 chk "skladenos-apply.service включён" "ls $W/etc/systemd/system/*.wants/skladenos-apply.service >/dev/null 2>&1"
-chk "пользователь mobian" "grep -q '^mobian:' $W/etc/passwd"
-chk "пароль mobian задан" "awk -F: '\$1==\"mobian\"{exit !(\$2 ~ /^\\\$/)}' $W/etc/shadow"
+chk "пользователь $IMG_USER (uid 1000)" "grep -q '^$IMG_USER:[^:]*:1000:' $W/etc/passwd"
+chk "пароль $IMG_USER задан" "awk -F: '\$1==\"$IMG_USER\"{exit !(\$2 ~ /^\\\$/)}' $W/etc/shadow"
+chk "нет пользователя mobian (если IMG_USER другой)" "[ \"$IMG_USER\" = mobian ] || ! grep -q '^mobian:' $W/etc/passwd"
+chk "группа $IMG_USER, домашний каталог принадлежит $IMG_USER" "grep -q '^$IMG_USER:' $W/etc/group && [ -d $W/home/$IMG_USER ] && [ \"\$(stat -c %u:%g $W/home/$IMG_USER)\" = 1000:\$(awk -F: '\$1==\"$IMG_USER\"{print \$4}' $W/etc/passwd) ]"
+chk "$IMG_USER в группах sudo, audio, video, dialout, netdev, clock" "for g in sudo audio video dialout netdev clock; do grep -q \"^\$g:.*[:,]$IMG_USER\(,\|\$\)\" $W/etc/group || exit 1; done"
+chk "sudoers skladenos-config на группе (не на имени)" "grep -q '^%sudo ' $W/etc/sudoers.d/sxmo-rtcwake && ! grep -rq '^mobian ' $W/etc/sudoers.d"
+chk "sshd: политика пароля только из локальных сетей" "[ -f $W/etc/ssh/sshd_config.d/10-skladenos.conf ] && [ ! -e $W/var/lib/skladenos/firstboot-done ]"
+chk "skladenos-sshd-policy.path включён" "ls $W/etc/systemd/system/*.wants/skladenos-sshd-policy.path >/dev/null 2>&1"
 chk "fstab: корень по UUID $UUID" "grep -q 'UUID=$UUID' $W/etc/fstab"
 chk "fstab: x-systemd.growfs" "grep -q growfs $W/etc/fstab"
 chk "machine-id сброшен" "[ ! -s $W/etc/machine-id ] || grep -q uninitialized $W/etc/machine-id"

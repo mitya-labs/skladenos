@@ -1,5 +1,5 @@
 #!/bin/bash
-# Выполняется ВНУТРИ chroot (rootfs Mobian), запускается build/image/inner.sh. Env: SSH EXTRA_PKGS LABEL GIT_REV VARIANT.
+# Выполняется ВНУТРИ chroot (rootfs Mobian), запускается build/image/inner.sh. Env: IMG_USER SSH EXTRA_PKGS LABEL GIT_REV VARIANT.
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive LC_ALL=C HOME=/root
 D=/tmp/skl-debs
@@ -24,13 +24,39 @@ say "apt-mark hold версий (testing ломается апгрейдами; 
 HOLD="rmtfs tqftpserv qrtr-tools alsa-ucm-conf droid-juicer firmware-qcom-soc firmware-qcom-dsp qbootctl"
 for p in $HOLD; do dpkg -s "$p" >/dev/null 2>&1 && apt-mark hold "$p" || true; done
 
+say "пользователь $IMG_USER (uid 1000) и пароль по умолчанию 1234"
+# делаем до установки пакетов: postinst skladenos-config и skladenos-apply берут uid 1000 и должны видеть уже новое имя.
+# В rootfs Mobian пользователь mobian (uid 1000) — переименовываем, а не создаём заново: сохраняются группы, ключи, настройки Phosh/dconf.
+GROUPS_WANT="sudo,audio,video,plugdev,dialout,input,netdev,clock"
+OLDU=$(getent passwd 1000 | cut -d: -f1 || true)
+if [ -z "$OLDU" ]; then
+  useradd -m -u 1000 -s /bin/bash "$IMG_USER"
+  echo "ВНИМАНИЕ: пользователя с uid 1000 в образе не было — создан $IMG_USER"
+elif [ "$OLDU" != "$IMG_USER" ]; then
+  OLDG=$(getent group "$(id -g "$OLDU")" | cut -d: -f1)
+  usermod -l "$IMG_USER" -d "/home/$IMG_USER" -m "$OLDU"
+  # primary group: имя как у пользователя (usermod -l группу не трогает)
+  [ "$OLDG" = "$OLDU" ] && groupmod -n "$IMG_USER" "$OLDG"
+  # остатки старого имени в конфигах (не трогаем hostname и репозитории): sudoers, greetd, AccountsService, polkit/getty автологин
+  for f in /etc/sudoers.d/*; do [ -f "$f" ] && sed -i "s/^$OLDU\\([[:space:]]\\)/$IMG_USER\\1/" "$f"; done
+  for f in /etc/greetd/*.toml; do [ -f "$f" ] && sed -i "s/^\\(user[[:space:]]*=[[:space:]]*\\)\"$OLDU\"/\\1\"$IMG_USER\"/" "$f"; done
+  sed -i "s/^$OLDU:/$IMG_USER:/" /etc/subuid /etc/subgid 2>/dev/null || true
+  [ -f "/var/lib/AccountsService/users/$OLDU" ] && mv "/var/lib/AccountsService/users/$OLDU" "/var/lib/AccountsService/users/$IMG_USER"
+  echo "переименован $OLDU -> $IMG_USER (группа $OLDG, домашний каталог /home/$IMG_USER)"
+  echo "остатки '$OLDU' в /etc (для справки):"; grep -rIlw "$OLDU" /etc 2>/dev/null | grep -v -e '^/etc/\(hostname\|hosts\|apt/\|passwd-\|shadow-\|group-\|gshadow-\)' || true
+fi
+getent group clock >/dev/null || groupadd -r clock
+for g in $(echo "$GROUPS_WANT" | tr , ' '); do getent group "$g" >/dev/null && usermod -aG "$g" "$IMG_USER" || true; done
+echo "$IMG_USER:1234" | chpasswd
+mkdir -p /var/lib/skladenos
+
 say "apt-get update"
 apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=60 update
 
 say "установка ядра, skladenos-*, зависимостей"
 # никакого full-upgrade: только то, что нужно нашим пакетам (залоченное не обновится)
 apt-get install -y -o Acquire::Retries=5 -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold \
-  "$KDEB" $D/skladenos-wallpapers_*.deb $D/skladenos-fonts_*.deb $D/skladenos-config_*.deb $D/skladenos-artwork_*.deb \
+  "$KDEB" $D/skladenos-wallpapers_*.deb $D/skladenos-fonts_*.deb $D/skladenos-config_*.deb $D/skladenos-artwork_*.deb $D/skladenos-firstboot_*.deb \
   sxmo-utils jq sudo swaybg network-manager python3 openssh-server $EXTRA_PKGS
 
 say "удаление ядра 6.12 (в boot будет только 7.2)"
@@ -41,16 +67,8 @@ apt-mark hold "$KPKG"
 [ -f /boot/initrd.img-$KREL ] || update-initramfs -c -k $KREL
 ls -la /boot
 
-say "пользователь mobian и пароль по умолчанию 1234"
-if ! getent passwd mobian >/dev/null; then
-  useradd -m -u 1000 -s /bin/bash -G sudo,audio,video,plugdev,dialout,input,netdev,clock mobian 2>/dev/null || useradd -m -u 1000 -s /bin/bash mobian
-  echo 'mobian:1234' | chpasswd
-  echo "ВНИМАНИЕ: пользователя mobian в образе не было — создан"
-fi
-awk -F: '$1=="mobian"{exit !($2 ~ /^\$/)}' /etc/shadow || { echo 'mobian:1234' | chpasswd; echo "пароль mobian не был задан — выставлен 1234"; }
-getent group clock >/dev/null && usermod -aG clock mobian || true
-/usr/bin/skladenos-apply --if-needed || echo "skladenos-apply в chroot не отработал (применится на первой загрузке)"
-chown -R mobian:mobian /home/mobian 2>/dev/null || true
+/usr/bin/skladenos-apply --user "$IMG_USER" --if-needed || echo "skladenos-apply в chroot не отработал (применится на первой загрузке)"
+chown -R "$IMG_USER:$IMG_USER" "/home/$IMG_USER" 2>/dev/null || true
 
 say "первый запуск: службы"
 systemctl enable skladenos-apply.service adsp-start.service 2>&1 | tail -2 || true

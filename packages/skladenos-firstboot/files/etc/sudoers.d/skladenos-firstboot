@@ -1,0 +1,2 @@
+# Мастер первой загрузки: только этот helper, и только пока нет флага firstboot-done (helper сам проверяет).
+%sudo ALL=(root) NOPASSWD: /usr/lib/skladenos-firstboot/helper

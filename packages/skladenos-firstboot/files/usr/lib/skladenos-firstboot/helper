@@ -1,0 +1,32 @@
+#!/usr/bin/python3
+# Root-helper мастера первой загрузки. Вызывается только через `sudo -n` (sudoers.d/skladenos-firstboot).
+# stdin: {"username": "...", "password": "..."}; stdout (последняя строка): {"ok": bool, "error"?, "rename_pending"?}.
+# Меняет пароль вызвавшего (SUDO_USER), при смене имени оставляет отложенное переименование на загрузку,
+# в конце создаёт /var/lib/skladenos/firstboot-done. После флага отказывается работать.
+import json, os, pwd, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from skladenos_firstboot import account
+
+
+def main():
+    if os.geteuid() != 0:
+        print(json.dumps({"ok": False, "error": "нужен root"}))
+        return 1
+    caller = os.environ.get("SUDO_USER", "")
+    try:
+        uid = pwd.getpwnam(caller).pw_uid
+    except KeyError:
+        uid = -1
+    if uid < 1000 or str(uid) != os.environ.get("SUDO_UID", ""):
+        print(json.dumps({"ok": False, "error": "вызов только от обычного пользователя через sudo"}))
+        return 1
+    try:
+        req = json.load(sys.stdin)
+        res = account.apply_changes(caller, str(req["username"]), str(req["password"]))
+    except Exception as e:  # noqa: BLE001
+        res = {"ok": False, "error": "ошибка запроса: %s" % type(e).__name__}
+    print(json.dumps(res))
+    return 0 if res.get("ok") else 1
+
+
+sys.exit(main())

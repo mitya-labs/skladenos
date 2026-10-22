@@ -1,0 +1,12 @@
+[Unit]
+Description=skladenOS: отложенное переименование пользователя после мастера первой загрузки
+ConditionPathExists=/var/lib/skladenos/rename-pending
+After=local-fs.target
+Before=sxmo.service skladenos-apply.service getty@tty1.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/skladenos-firstboot/rename
+
+[Install]
+WantedBy=multi-user.target

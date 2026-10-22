@@ -1,0 +1,10 @@
+#!/bin/sh
+# Запуск мастера в foot на сенсорном экране SXMO; ничего не делает, если мастер уже пройден.
+# Зовётся из sway (/etc/sway/config.d/60-skladenos-firstboot.conf) один раз за сеанс.
+FLAG="${SKLADENOS_STATE_DIR:-/var/lib/skladenos}/firstboot-done"
+[ -e "$FLAG" ] && exit 0
+# дать sxmo_hook_start.sh поднять статус-бар и уведомления
+sleep "${SKLADENOS_FIRSTBOOT_DELAY:-4}"
+[ -e "$FLAG" ] && exit 0
+# shellcheck disable=SC2086
+exec foot -a skladenos-firstboot -T "skladenOS: первая загрузка" $SKLADENOS_FIRSTBOOT_FOOT_ARGS /usr/bin/skladenos-firstboot

@@ -1,0 +1,8 @@
+#!/usr/bin/python3
+# Загрузочный шаг (root, до sxmo.service): отложенное переименование пользователя после мастера первой загрузки.
+import os, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from skladenos_firstboot import account
+
+for line in account.process_pending_rename():
+    print("skladenos-firstboot-rename:", line, flush=True)

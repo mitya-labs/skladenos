@@ -1,0 +1,5 @@
+skladenos-firstboot (0.1.0) unstable; urgency=medium
+
+  * Первая версия: мастер первой загрузки (Bluetooth-клавиатура, Wi-Fi, пользователь и пароль).
+
+ -- Dmitrii Trifonov <53140442+DmitriiTrifonov@users.noreply.github.com>  Thu, 22 Oct 2026 20:30:00 +0300

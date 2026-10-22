@@ -1,0 +1,17 @@
+Source: skladenos-firstboot
+Section: misc
+Priority: optional
+Maintainer: Dmitrii Trifonov <53140442+DmitriiTrifonov@users.noreply.github.com>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+
+Package: skladenos-firstboot
+Architecture: all
+Depends: ${misc:Depends}, python3, python3-textual, bluez, network-manager, sudo, passwd, sxmo-utils, foot
+Recommends: skladenos-config
+Description: skladenOS: мастер первой загрузки (Bluetooth-клавиатура, Wi-Fi, пользователь и пароль)
+ TUI на Textual в foot для сенсорного экрана SXMO (тапы приходят как клики мыши). Запускается из sway,
+ пока нет /var/lib/skladenos/firstboot-done: подключает Bluetooth-клавиатуру, Wi-Fi, предлагает сменить
+ имя пользователя и пароль (через root-helper по sudo; переименование выполняется на следующей загрузке).
+ Флаг firstboot-done снимает ограничение SSH-входа по паролю только из локальных сетей.

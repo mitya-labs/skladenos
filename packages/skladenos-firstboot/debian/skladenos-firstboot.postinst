@@ -1,0 +1,15 @@
+#!/bin/sh
+set -e
+case "$1" in
+configure)
+	# каталог состояния; флаг firstboot-done создаёт только helper мастера
+	mkdir -p /var/lib/skladenos
+	chmod 755 /var/lib/skladenos
+	# sudoers-файл обязан быть синтаксически верным, иначе sudo сломается целиком
+	if command -v visudo >/dev/null 2>&1 && ! visudo -cf /etc/sudoers.d/skladenos-firstboot >/dev/null 2>&1; then
+		rm -f /etc/sudoers.d/skladenos-firstboot
+	fi
+	;;
+esac
+#DEBHELPER#
+exit 0

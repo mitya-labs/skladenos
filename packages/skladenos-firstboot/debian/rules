@@ -1,0 +1,11 @@
+#!/usr/bin/make -f
+%:
+	dh $@
+
+override_dh_auto_install:
+	cp -a files/. debian/skladenos-firstboot/
+	mkdir -p debian/skladenos-firstboot/var/lib/skladenos
+	find debian/skladenos-firstboot -name __pycache__ -prune -exec rm -rf {} +
+
+override_dh_installsystemd:
+	dh_installsystemd --name=skladenos-firstboot-rename

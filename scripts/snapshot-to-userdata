@@ -36,13 +36,13 @@ echo "cmdline в boot: $CMD"
 case "$CMD" in *" rw "*) ;; *) echo "В boot НЕТ rw — будет бутлуп, не прошивать!" >&2; exit 1 ;; esac
 
 echo "[~10-15 мин, $(date +%H:%M) → ~$(date -v+15M +%H:%M)] Docker: распаковка, mke2fs -d, e2fsck, img2simg"
-docker run --rm --platform linux/arm64 \
+docker run --rm --privileged --platform linux/arm64 \
   -v "$SNAP:/snap:ro" -v "$OUT:/out" -e UUID="$UUID" debian:stable-slim bash -euxo pipefail -c '
     export DEBIAN_FRONTEND=noninteractive
     apt-get update -qq
     apt-get install -y -qq --no-install-recommends zstd tar e2fsprogs android-sdk-libsparse-utils >/dev/null
     mkdir /work && cd /work
-    zstd -dc /snap/snap.tar.zst | tar --xattrs --acls --numeric-owner -xpf - -C /work || [ $? -eq 1 ]
+    zstd -dc /snap/snap.tar.zst | tar --xattrs --acls --numeric-owner -xpf - -C /work --exclude="./home/*/.local/share/containers/storage" || [ $? -eq 1 ]
     used_mb=$(du -sm --apparent-size /work | cut -f1)
     size_mb=$(( used_mb * 5 / 4 + 1024 )); [ $size_mb -lt 8192 ] && size_mb=8192
     echo "занято ${used_mb} МБ, ФС ${size_mb} МБ"

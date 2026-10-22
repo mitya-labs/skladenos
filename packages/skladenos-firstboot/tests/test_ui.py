@@ -18,6 +18,14 @@ class FakeOsk:
     def is_open(self): return self.opened
 
 
+async def vis(pilot, sel):
+    """Прокрутить к виджету (в окне 84x19 строк, как на телефоне, кнопки не помещаются)."""
+    w = pilot.app.screen.query_one(sel) if isinstance(sel, str) else sel
+    w.scroll_visible(animate=False)
+    await pilot.pause(0.1)
+    return w
+
+
 async def wait_for(pilot, cond, tries=60):
     for _ in range(tries):
         await pilot.pause(0.1)
@@ -74,7 +82,9 @@ class UiFlow(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(await wait_for(pilot, lambda: isinstance(app.screen, DoneScreen)))
             self.assertEqual(self.acc.calls, [("dima", "s3cret!")])
             self.assertTrue(len(app.screen.query("#reboot")) == 1)
+            await pilot.pause(0.5)  # раскладка нового экрана устоялась
             await pilot.click("#close")
+            await wait_for(pilot, lambda: app._exit)  # run_test сам зовёт exit() на выходе и затёр бы результат
         self.assertEqual(app.return_value, 0)
 
     async def test_skip_everything_and_osk(self):
@@ -93,6 +103,7 @@ class UiFlow(unittest.IsolatedAsyncioTestCase):
             await pilot.press("f2")
             self.assertFalse(self.osk.opened)
             await pilot.click("#skip")
+            await wait_for(pilot, lambda: app._exit)
         self.assertEqual(app.return_value, 2)
 
     async def test_bt_pair_failure_shown(self):
@@ -103,6 +114,120 @@ class UiFlow(unittest.IsolatedAsyncioTestCase):
             await pilot.click([i for i in app.screen.query("ListItem") if i.name == "AA:BB:CC:00:00:02"][0])
             self.assertTrue(await wait_for(pilot, lambda: "AuthenticationFailed" in str(app.screen.query_one("#status").render())))
             self.assertFalse(app.has_bt_keyboard)
+
+    async def test_list_not_rebuilt_and_selection_kept(self):
+        """Обновление списка Bluetooth не пересоздаёт пункты: тот же объект, подсвеченный пункт сохраняется."""
+        app = self.make()
+        async with app.run_test(size=(84, 19)) as pilot:
+            self.assertTrue(await wait_for(pilot, lambda: len(app.screen.query("ListItem")) >= 2))
+            scr = app.screen
+            before = {i.name: i for i in scr.query("ListItem")}
+            lv = scr.query_one("#devs")
+            lv.index = 1
+            devs = list(scr.app.backends.bluetooth.devices())
+            scr.shown = []  # принудительное обновление с переименованием
+            app._last_touch = 0.0
+            devs[0].name = devs[0].name + " (2)"
+            scr.show_devices(devs)
+            await pilot.pause(0.3)
+            after = {i.name: i for i in scr.query("ListItem")}
+            self.assertEqual({k: id(v) for k, v in before.items()}, {k: id(v) for k, v in after.items()})
+            self.assertEqual(lv.index, 1)
+            self.assertIn("(2)", str(after[devs[0].mac].query_one("Label").render()))
+            # исчезновение устройства: удаляется только оно
+            scr.shown = []
+            scr.show_devices(devs[1:])
+            await pilot.pause(0.3)
+            self.assertEqual(sorted(i.name for i in scr.query("ListItem")), sorted(d.mac for d in devs[1:]))
+
+    async def test_no_list_update_right_after_touch(self):
+        app = self.make()
+        async with app.run_test(size=(84, 19)) as pilot:
+            self.assertTrue(await wait_for(pilot, lambda: len(app.screen.query("ListItem")) >= 2))
+            scr = app.screen
+            n = len(scr.query("ListItem"))
+            scr.shown = []
+            from textual import events
+            await app.on_event(events.MouseDown(None, 3, 4, 0, 0, 1, False, False, False))  # как от драйвера
+            scr.show_devices([])  # сразу после касания список не трогаем
+            await pilot.pause(0.2)
+            self.assertEqual(len(scr.query("ListItem")), n)
+
+    async def test_tap_on_mouse_down_only_and_no_double(self):
+        """Кнопка срабатывает на MouseDown ровно один раз (потом приходит Click и игнорируется)."""
+        from skladenos_firstboot.ui import BluetoothScreen, TapButton, WifiScreen
+        app = self.make(present=False)
+        async with app.run_test(size=(84, 19)) as pilot:
+            await pilot.pause(0.3)
+            self.assertIsInstance(app.screen, BluetoothScreen)
+            presses = []
+            orig = TapButton.press
+            TapButton.press = lambda self: (presses.append(self.id), orig(self))[1]
+            try:
+                await vis(pilot, "#skip"); await pilot.mouse_down("#skip")  # палец ещё не отпущен
+                await pilot.pause(0.2)
+                self.assertEqual(presses, ["skip"])
+                await pilot.mouse_up()
+                await pilot.pause(0.2)
+                self.assertEqual(presses, ["skip"])
+            finally:
+                TapButton.press = orig
+            self.assertTrue(await wait_for(pilot, lambda: isinstance(app.screen, WifiScreen)))
+
+    async def test_item_selected_on_mouse_down_once(self):
+        app = self.make()
+        async with app.run_test(size=(84, 19)) as pilot:
+            self.assertTrue(await wait_for(pilot, lambda: len(app.screen.query("ListItem")) >= 2))
+            await pilot.pause(0.5)
+            calls = []
+            app.backends.bluetooth.pair = lambda mac, cb: (calls.append(mac), (False, "x"))[1]
+            item = [i for i in app.screen.query("ListItem") if i.name == "AA:BB:CC:00:00:02"][0]
+            await vis(pilot, item); await pilot.click(item, offset=(2, 0))  # верхний край пункта, не центр текста
+            await pilot.pause(0.5)
+            self.assertEqual(calls, ["AA:BB:CC:00:00:02"])
+
+    async def test_input_retap_shows_osk_again(self):
+        app = self.make(present=False)
+        async with app.run_test(size=(84, 40)) as pilot:
+            await pilot.click("#skip"); await pilot.pause(0.3)
+            await pilot.click("#skip")
+            from skladenos_firstboot.ui import AccountScreen
+            self.assertTrue(await wait_for(pilot, lambda: isinstance(app.screen, AccountScreen)))
+            await pilot.click("#pw1"); await pilot.pause(0.2)
+            self.assertTrue(self.osk.opened)
+            self.osk.hide()  # «Скрыть клавиатуру»; фокус остаётся на поле
+            await pilot.click("#pw1"); await pilot.pause(0.2)
+            self.assertTrue(self.osk.opened)
+
+    async def test_touch_geometry(self):
+        """Цели касания крупные: кнопки >= 5 строк, пункты списка >= 4, зазор между кнопками >= 1."""
+        app = self.make()
+        async with app.run_test(size=(84, 19)) as pilot:
+            self.assertTrue(await wait_for(pilot, lambda: len(app.screen.query("ListItem")) >= 2))
+            for b in app.screen.query("Button"):
+                self.assertGreaterEqual(b.outer_size.height, 5)
+                self.assertGreaterEqual(b.styles.margin.top, 1)
+            for i in app.screen.query("ListItem"):
+                self.assertGreaterEqual(i.styles.height.value, 4)
+
+    async def test_taplog(self):
+        import tempfile
+        from textual import events
+        log = tempfile.mktemp()
+        os.environ["SKLADENOS_FIRSTBOOT_TAPLOG"] = log
+        try:
+            app = self.make(present=False)
+            async with app.run_test(size=(84, 19)) as pilot:
+                await pilot.pause(0.2)
+                await app.on_event(events.MouseDown(None, 3, 4, 0, 0, 1, False, False, False))
+                await app.on_event(events.MouseUp(None, 3, 4, 0, 0, 1, False, False, False))
+            txt = open(log).read()
+            self.assertIn("MouseDown x=3 y=4", txt)
+            self.assertIn("MouseUp", txt)
+            self.assertTrue(app.touch_recent())
+        finally:
+            os.environ.pop("SKLADENOS_FIRSTBOOT_TAPLOG", None)
+            if os.path.exists(log): os.unlink(log)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,8 @@
+[Unit]
+Description=skladenOS: ждать флаг смены пароля по умолчанию (снять ограничение SSH-пароля)
+
+[Path]
+PathExists=/var/lib/skladenos/firstboot-done
+
+[Install]
+WantedBy=multi-user.target

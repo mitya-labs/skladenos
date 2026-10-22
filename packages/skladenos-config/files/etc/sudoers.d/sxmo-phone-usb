@@ -1,1 +1,1 @@
-mobian ALL=(root) NOPASSWD: /usr/bin/phone-usb
+%sudo ALL=(root) NOPASSWD: /usr/bin/phone-usb

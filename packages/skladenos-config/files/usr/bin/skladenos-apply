@@ -2,7 +2,7 @@
 # skladenos-apply — пользовательские настройки SXMO для skladenOS (Poco F1), слой B пакета skladenos-config.
 # Заменяет пользовательскую часть scripts/sxmo-setup: конфиги и хуки SXMO в ~/.config/sxmo собираются из
 # штатных шаблонов sxmo-utils (/usr/share/sxmo) + файлов пакета (/usr/share/skladenos/skel).
-#   skladenos-apply [--user mobian] [--if-needed] [--force] [--dry-run]
+#   skladenos-apply [--user имя] [--if-needed] [--force] [--dry-run]
 #   --if-needed  ничего не делать, если для этой версии пакета уже применено (штамп в ~/.config/sxmo/.skladenos-stamp)
 #   --force      перезаписать и файлы, изменённые пользователем (по умолчанию они не трогаются)
 # Файлы, изменённые пользователем после установки (хэш не совпадает с записанным в манифесте), пропускаются и перечисляются.
@@ -19,6 +19,16 @@ if not os.path.exists(WALLPAPER):
 NOTCH_H = os.environ.get("NOTCH_H", "28")
 NOTCH_BG = os.environ.get("NOTCH_BG", "#323232")
 KEYBOARD_ARGS = "-l simple,cyrillic,special,emoji"
+
+
+def default_user():
+    """Пользователь по умолчанию: SKLADENOS_USER (/etc/default/skladenos) иначе первый обычный (uid 1000, потом наименьший 1000..59999)."""
+    try:
+        return pwd.getpwuid(1000).pw_name
+    except KeyError:
+        pass
+    users = sorted((u.pw_uid, u.pw_name) for u in pwd.getpwall() if 1000 <= u.pw_uid < 60000)
+    return users[0][1] if users else "skladen"
 
 
 def pkg_version():
@@ -256,7 +266,7 @@ def apply(ctx):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--user", default=os.environ.get("SKLADENOS_USER", "mobian"))
+    ap.add_argument("--user", default=os.environ.get("SKLADENOS_USER") or default_user())
     ap.add_argument("--if-needed", action="store_true")
     ap.add_argument("--force", action="store_true")
     ap.add_argument("--dry-run", action="store_true")

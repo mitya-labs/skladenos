@@ -6,7 +6,7 @@ Before=sxmo.service
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-# пользователь по умолчанию mobian; другой — через /etc/default/skladenos (SKLADENOS_USER=...)
+# пользователь по умолчанию — первый обычный (uid 1000, в образе skladen); другой — через /etc/default/skladenos (SKLADENOS_USER=...)
 EnvironmentFile=-/etc/default/skladenos
 ExecStart=/usr/bin/skladenos-apply --if-needed
 

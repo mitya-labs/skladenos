@@ -1,2 +1,3 @@
-# Пользователь, для которого skladenos-apply собирает настройки SXMO (по умолчанию mobian)
-#SKLADENOS_USER=mobian
+# Пользователь, для которого skladenos-apply собирает настройки SXMO.
+# По умолчанию не задан: берётся первый обычный пользователь (uid 1000; в образе skladen).
+#SKLADENOS_USER=skladen

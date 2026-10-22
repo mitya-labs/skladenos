@@ -8,7 +8,15 @@ configure)
 	# звук: без alsa-restore (его маска идёт файлом в пакете); старое состояние удаляем
 	rm -f /var/lib/alsa/asound.state
 	# suspend по rtcwake: группа clock для /dev/rtc0
-	if getent passwd mobian >/dev/null 2>&1; then usermod -aG clock mobian || true; fi
+	# пользователь: SKLADENOS_USER из /etc/default/skladenos, иначе первый обычный (uid 1000)
+	SKLADENOS_USER=
+	[ -r /etc/default/skladenos ] && . /etc/default/skladenos
+	[ -n "$SKLADENOS_USER" ] || SKLADENOS_USER=$(getent passwd 1000 | cut -d: -f1)
+	if [ -n "$SKLADENOS_USER" ] && getent group clock >/dev/null 2>&1; then usermod -aG clock "$SKLADENOS_USER" || true; fi
+	# флаг «пароль по умолчанию сменён» (его создаёт мастер первой загрузки) — каталог для него
+	mkdir -p /var/lib/skladenos
+	# SSH-политика: если флаг уже есть (обновление пакета) — снять ограничение пароля сразу
+	/usr/lib/skladenos/sshd-policy || true
 	# пользовательские настройки SXMO (если пользователь уже есть; иначе их применит skladenos-apply.service на загрузке)
 	/usr/bin/skladenos-apply --if-needed || true
 	;;

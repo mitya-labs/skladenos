@@ -1,0 +1,6 @@
+[Unit]
+Description=skladenOS: снять ограничение SSH-пароля по локальным сетям после смены пароля
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/skladenos/sshd-policy

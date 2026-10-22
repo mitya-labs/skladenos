@@ -1,1 +1,1 @@
-mobian ALL=(root) NOPASSWD: /usr/sbin/powerplan-apply
+%sudo ALL=(root) NOPASSWD: /usr/sbin/powerplan-apply

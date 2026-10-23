@@ -1,0 +1,214 @@
+#!/usr/bin/python3
+"""Сторожевая служба тачскрина ft5x06 (STATE п.148).
+
+Контроллер иногда «застревает»: касание висит в слоте часами (tracking_id не меняется, координаты стоят),
+и приложения перестают получать тапы. Лечится перепривязкой драйвера (unbind/bind), после неё нужно
+перезапустить lisgd: он держит дескриптор старого /dev/input/touchscreen.
+
+Раз в секунду читаются слоты мультитача (EVIOCGMTSLOTS, без захвата устройства). Касание считается
+застрявшим, если один и тот же tracking_id держится дольше STUCK_SECS, а его координаты за это время
+сдвинулись меньше чем на MAX_MOVE единиц сенсора. Повторные сбросы идут с нарастающей паузой.
+
+  skladenos-touch-watchdog          работать (служба)
+  skladenos-touch-watchdog --check  один раз напечатать слоты и выйти
+Параметры (окружение): TOUCH_I2C_DEV (14-0038), TOUCH_DRIVER (edt_ft5x06), TOUCH_STUCK_SECS (10),
+TOUCH_MAX_MOVE (40), SKLADENOS_USER (иначе uid 1000; для перезапуска lisgd).
+"""
+import array
+import fcntl
+import glob
+import os
+import pwd
+import subprocess
+import sys
+import time
+
+I2C_DEV = os.environ.get("TOUCH_I2C_DEV", "14-0038")
+DRIVER = os.environ.get("TOUCH_DRIVER", "edt_ft5x06")
+STUCK_SECS = float(os.environ.get("TOUCH_STUCK_SECS", "10"))
+MAX_MOVE = int(os.environ.get("TOUCH_MAX_MOVE", "40"))
+POLL = 1.0
+COOLDOWN_MIN, COOLDOWN_MAX = 30.0, 600.0
+CALM_RESET = 3600.0  # столько без сбросов -> пауза снова минимальная
+
+ABS_MT_SLOT, ABS_MT_POSITION_X, ABS_MT_POSITION_Y, ABS_MT_TRACKING_ID = 0x2F, 0x35, 0x36, 0x39
+
+
+def _ioc_read(nr: int, size: int) -> int:
+    return (2 << 30) | (size << 16) | (ord("E") << 8) | nr
+
+
+def read_slots(fd: int):
+    """[(tracking_id, x, y)] по слотам; tracking_id == -1 -> слот свободен."""
+    absinfo = array.array("i", [0] * 6)
+    fcntl.ioctl(fd, _ioc_read(0x40 + ABS_MT_SLOT, 24), absinfo, True)
+    n = max(absinfo[2] + 1, 1)
+    out = []
+    cols = []
+    for code in (ABS_MT_TRACKING_ID, ABS_MT_POSITION_X, ABS_MT_POSITION_Y):
+        buf = array.array("i", [code] + [0] * n)
+        fcntl.ioctl(fd, _ioc_read(0x0A, len(buf) * 4), buf, True)
+        cols.append(list(buf)[1:])
+    for i in range(n):
+        out.append((cols[0][i], cols[1][i], cols[2][i]))
+    return out
+
+
+class StuckDetector:
+    """Чистая логика: update(now, slots) -> True, если какое-то касание застряло."""
+
+    def __init__(self, stuck_secs: float = STUCK_SECS, max_move: int = MAX_MOVE):
+        self.stuck_secs, self.max_move = stuck_secs, max_move
+        self.state = {}  # слот -> [tracking_id, since, minx, maxx, miny, maxy]
+
+    def reset(self) -> None:
+        self.state.clear()
+
+    def update(self, now: float, slots) -> bool:
+        stuck = False
+        for i, (tid, x, y) in enumerate(slots):
+            if tid == -1:
+                self.state.pop(i, None)
+                continue
+            st = self.state.get(i)
+            if st is None or st[0] != tid:
+                self.state[i] = [tid, now, x, x, y, y]
+                continue
+            st[2], st[3] = min(st[2], x), max(st[3], x)
+            st[4], st[5] = min(st[4], y), max(st[5], y)
+            if now - st[1] >= self.stuck_secs and max(st[3] - st[2], st[5] - st[4]) <= self.max_move:
+                stuck = True
+        return stuck
+
+
+class Backoff:
+    """Пауза между сбросами: удваивается при частых сбросах, сбрасывается после долгого затишья."""
+
+    def __init__(self):
+        self.pause = COOLDOWN_MIN
+        self.last = None
+
+    def allowed(self, now: float) -> bool:
+        return self.last is None or now - self.last >= self.pause
+
+    def fired(self, now: float) -> None:
+        if self.last is not None and now - self.last >= CALM_RESET:
+            self.pause = COOLDOWN_MIN
+        elif self.last is not None:
+            self.pause = min(self.pause * 2, COOLDOWN_MAX)
+        self.last = now
+
+
+def log(msg: str) -> None:
+    print(msg, flush=True)  # journald
+
+
+def event_node():
+    """Путь к /dev/input/eventN тачскрина (меняется после перепривязки) или None."""
+    for p in sorted(glob.glob("/sys/bus/i2c/devices/%s/input/input*/event*" % I2C_DEV)):
+        return "/dev/input/" + os.path.basename(p)
+    return None
+
+
+def wait_node(timeout: float = 10.0):
+    end = time.monotonic() + timeout
+    while time.monotonic() < end:
+        node = event_node()
+        if node and os.path.exists(node):
+            return node
+        time.sleep(0.2)
+    return None
+
+
+def session_user():
+    name = os.environ.get("SKLADENOS_USER")
+    if name:
+        return name
+    try:
+        return pwd.getpwuid(1000).pw_name
+    except KeyError:
+        return None
+
+
+def restart_lisgd() -> None:
+    user = session_user()
+    if not user:
+        return
+    uid = pwd.getpwnam(user).pw_uid
+    env = {"XDG_RUNTIME_DIR": "/run/user/%d" % uid, "PATH": os.environ.get("PATH", "/usr/bin:/bin")}
+    if not os.path.isdir(env["XDG_RUNTIME_DIR"]):
+        return  # сеанса нет, lisgd стартует сам вместе с ним
+    r = subprocess.run(["runuser", "-u", user, "--", "systemctl", "--user", "restart", "sxmo_hook_lisgd"],
+                       env=env, capture_output=True, text=True)
+    log("lisgd restart rc=%d %s" % (r.returncode, (r.stderr or "").strip()))
+
+
+def rebind() -> None:
+    base = "/sys/bus/i2c/drivers/%s" % DRIVER
+    with open(base + "/unbind", "w") as f:
+        f.write(I2C_DEV)
+    time.sleep(0.5)
+    with open(base + "/bind", "w") as f:
+        f.write(I2C_DEV)
+
+
+def check() -> int:
+    node = event_node()
+    if not node:
+        print("тачскрин %s не найден" % I2C_DEV)
+        return 1
+    fd = os.open(node, os.O_RDONLY)
+    try:
+        print(node, read_slots(fd))
+    finally:
+        os.close(fd)
+    return 0
+
+
+def main() -> int:
+    if "--check" in sys.argv:
+        return check()
+    det, back = StuckDetector(), Backoff()
+    fd, node = None, None
+    log("старт: %s, застрявшим считается касание > %.0f с и сдвиг <= %d" % (I2C_DEV, STUCK_SECS, MAX_MOVE))
+    while True:
+        cur = event_node()
+        if cur != node or fd is None:
+            if fd is not None:
+                os.close(fd)
+                fd = None
+            node = cur
+            det.reset()
+            if node:
+                try:
+                    fd = os.open(node, os.O_RDONLY)
+                except OSError as e:
+                    log("не открыть %s: %s" % (node, e))
+        if fd is not None:
+            try:
+                stuck = det.update(time.monotonic(), read_slots(fd))
+            except OSError as e:
+                log("чтение слотов: %s" % e)
+                os.close(fd)
+                fd, node = None, None
+                stuck = False
+            now = time.monotonic()
+            if stuck and back.allowed(now):
+                back.fired(now)
+                log("касание застряло, перепривязываю %s/%s (следующий сброс не раньше чем через %.0f с)" % (
+                    DRIVER, I2C_DEV, back.pause))
+                try:
+                    rebind()
+                except OSError as e:
+                    log("перепривязка не удалась: %s" % e)
+                else:
+                    if wait_node():
+                        restart_lisgd()
+                    else:
+                        log("после перепривязки узел ввода не появился")
+                det.reset()
+        time.sleep(POLL)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

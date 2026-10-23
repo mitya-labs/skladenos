@@ -1,0 +1,13 @@
+[Unit]
+Description=skladenOS: сброс тачскрина ft5x06, если касание «застряло» (STATE п.148)
+After=systemd-udevd.service
+
+[Service]
+EnvironmentFile=-/etc/default/skladenos
+ExecStart=/usr/sbin/skladenos-touch-watchdog
+Restart=always
+RestartSec=5
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

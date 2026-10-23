@@ -13,3 +13,4 @@ override_dh_installsystemd:
 	dh_installsystemd --name=skladenos-apply
 	dh_installsystemd --name=skladenos-sshd-policy
 	dh_installsystemd --name=skladenos-bt-nvm
+	dh_installsystemd --name=skladenos-touch-watchdog

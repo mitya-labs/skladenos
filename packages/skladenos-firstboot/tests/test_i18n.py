@@ -17,11 +17,20 @@ class Catalog(unittest.TestCase):
     def test_all_keys_in_all_languages_with_same_placeholders(self):
         ph = lambda s: sorted(re.findall(r"%[sd]", s))
         for key, tr in i18n.STRINGS.items():
-            if key in ("lang.title", "lang.button"):  # двуязычные подписи, одинаковые везде (en как запасной)
+            if key in ("lang.title", "lang.hint", "lang.button"):  # двуязычные подписи, одинаковые везде (en как запасной)
                 continue
             self.assertEqual(set(tr), set(i18n.LANGS), key)
             self.assertEqual(ph(tr["en"]), ph(tr["ru"]), key)
             self.assertTrue(all(tr.values()), key)
+
+    def test_language_screen_text_in_all_languages(self):
+        """Заголовок и подсказка экрана выбора языка содержат слово «язык» на каждом языке и не зависят от выбора."""
+        for word in ("Language", "Язык", "Sprache", "Langue", "Idioma", "Мова", "Lingua", "Língua", "Język", "Dil", "Taal", "Jazyk"):
+            self.assertIn(word, i18n.t("lang.title"))
+        self.assertEqual(len(i18n.t("lang.hint").split(" · ")), len(i18n.LANGS))
+        self.assertLess(len(i18n.t("lang.hint")), 240)  # 3-4 строки на экране в 80 колонок
+        i18n.set_lang("de")
+        self.assertEqual(i18n.t("lang.title"), i18n.LANG_TITLE)
 
     def test_languages(self):
         self.assertEqual(sorted(i18n.LANGS), ["cs", "de", "en", "es", "fr", "it", "nl", "pl", "pt", "ru", "tr", "uk"])

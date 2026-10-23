@@ -57,6 +57,14 @@ def t(key: str, *args) -> str:
     return text % args if args else text
 
 
+# слово «язык» и фраза «выберите язык» на каждом языке мастера (порядок = порядок кнопок на экране выбора)
+LANG_WORDS = [("Language", "Choose your language"), ("Язык", "Выберите язык"), ("Sprache", "Sprache wählen"),
+              ("Langue", "Choisissez la langue"), ("Idioma", "Elige el idioma"), ("Мова", "Оберіть мову"),
+              ("Lingua", "Scegli la lingua"), ("Língua", "Escolha o idioma"), ("Język", "Wybierz język"),
+              ("Dil", "Dil seçin"), ("Taal", "Kies je taal"), ("Jazyk", "Vyberte jazyk")]
+LANG_TITLE = " / ".join(w for w, _ in LANG_WORDS)
+LANG_HINT = " · ".join(h for _, h in LANG_WORDS)  # одним абзацем: на экране телефона ~19 строк
+
 STRINGS: dict[str, dict[str, str]] = {
     # --- общие ---
     "app.title": {"en": "skladenOS: first boot", "ru": "skladenOS: первая загрузка"},
@@ -65,9 +73,9 @@ STRINGS: dict[str, dict[str, str]] = {
     "hide_kb": {"en": "Hide keyboard", "ru": "Скрыть клавиатуру"},
     "show_pw": {"en": "Show/hide password", "ru": "Показать/скрыть пароль"},
     # --- шаг 0: язык ---
-    "lang.title": {"en": "Language / Язык", "ru": "Language / Язык"},  # во всех языках одинаково
-    "lang.hint": {"en": "Choose the language of this wizard. You can switch it later with the button on any step.",
-                  "ru": "Выберите язык мастера. Его можно сменить кнопкой на любом шаге."},
+    # экран выбора языка: заголовок и подсказка на всех языках сразу, одинаковые в любом выбранном языке
+    "lang.title": {"en": LANG_TITLE},
+    "lang.hint": {"en": LANG_HINT},
     # --- шаг 1: Bluetooth ---
     "bt.title": {"en": "Step 1 of 3. Bluetooth keyboard", "ru": "Шаг 1 из 3. Bluetooth-клавиатура"},
     "bt.hint": {"en": "Put the keyboard into pairing mode and pick it from the list.",

@@ -8,6 +8,7 @@
 # Прошивка (СТИРАЕТ телефон): scripts/snapshot-flash out/image/<метка>
 # Переменные: VARIANT=ebbg|tianma (панель, по умолчанию ebbg), SSH=1|0 (включить sshd, по умолчанию 1; пароль пользователя 1234; вход по паролю до смены — только из локальных сетей),
 #   IMG_USER=skladen (имя пользователя по умолчанию, uid 1000; rootfs Mobian приходит с mobian — переименовывается),
+#   IMG_HOSTNAME=... (имя хоста, по умолчанию как IMG_USER; в rootfs Mobian — mobian),
 #   EXTRA_PKGS="..." (доп. пакеты из репозиториев), FORCE=1 (не отказываться, если идёт сборка ядра), KEEP_WORK=1 (не удалять рабочие каталоги Docker — нет смысла, контейнер --rm).
 # Что внутри (inner.sh → chroot-stage.sh): Mobian rootfs.img (sparse) → raw → копия в каталог → chroot: apt-mark hold версий, установка
 #   ядра 7.2 + skladenos-* + зависимостей (sxmo-utils, jq, …) → чистка → mke2fs -d (UUID корня тот же, что в cmdline Mobian) → e2fsck → img2simg;
@@ -16,7 +17,7 @@
 set -euo pipefail
 R="$(cd "$(dirname "$0")/../.." && pwd)"
 MODE="${1:-check}"; LABEL="${2:-$(date +%Y%m%d-%H%M)}"
-VARIANT="${VARIANT:-ebbg}"; IMG_USER="${IMG_USER:-skladen}"; SSH="${SSH:-1}"; EXTRA_PKGS="${EXTRA_PKGS:-}"
+VARIANT="${VARIANT:-ebbg}"; IMG_USER="${IMG_USER:-skladen}"; IMG_HOSTNAME="${IMG_HOSTNAME:-$IMG_USER}"; SSH="${SSH:-1}"; EXTRA_PKGS="${EXTRA_PKGS:-}"
 case "$VARIANT" in ebbg|tianma) ;; *) echo "VARIANT: ebbg или tianma" >&2; exit 2 ;; esac
 
 MOB="$R/images/mobian"; STAMP=mobian-sdm845-phosh-20260927
@@ -112,7 +113,7 @@ E
   docker run --rm --privileged --platform linux/arm64 \
     -v "$ROOTFS:/in/rootfs.img:ro" -v "$BOOT_SRC:/in/boot-src.img:ro" -v "$STAGE/debs:/in/debs:ro" \
     -v "$R/build/image:/in/scripts:ro" -v "$OUT:/out" \
-    -e UUID="$UUID" -e VARIANT="$VARIANT" -e IMG_USER="$IMG_USER" -e SSH="$SSH" -e EXTRA_PKGS="$EXTRA_PKGS" -e LABEL="$LABEL" \
+    -e UUID="$UUID" -e VARIANT="$VARIANT" -e IMG_USER="$IMG_USER" -e IMG_HOSTNAME="$IMG_HOSTNAME" -e SSH="$SSH" -e EXTRA_PKGS="$EXTRA_PKGS" -e LABEL="$LABEL" \
     -e GIT_REV="$(git -C "$R" rev-parse --short HEAD 2>/dev/null || echo unknown)" \
     "$IMG" bash /in/scripts/inner.sh 2>&1 | tee "$LOG"
   [ -f "$OUT/userdata.simg" ] && [ -f "$OUT/boot.img" ] || { echo "Docker не выдал boot.img/userdata.simg" >&2; exit 1; }

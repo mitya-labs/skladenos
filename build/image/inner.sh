@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Выполняется ВНУТРИ контейнера debian:stable-slim (--privileged, arm64); запускает build/image/build.sh build.
-# /in/{rootfs.img,boot-src.img,debs/,scripts/} — вход (ro), /out — результат. Env: UUID VARIANT IMG_USER SSH EXTRA_PKGS LABEL GIT_REV.
+# /in/{rootfs.img,boot-src.img,debs/,scripts/} — вход (ro), /out — результат. Env: UUID VARIANT IMG_USER IMG_HOSTNAME SSH EXTRA_PKGS LABEL GIT_REV.
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 say() { echo; echo "=== [$(date +%H:%M)] $*"; }
@@ -36,7 +36,7 @@ cp /etc/resolv.conf $W/etc/resolv.conf
 mount -t proc proc $W/proc; mount -t sysfs sys $W/sys; mount --rbind /dev $W/dev; mount --make-rslave $W/dev
 cleanup() { umount -R $W/dev $W/sys $W/proc 2>/dev/null || true; }
 trap cleanup EXIT
-chroot $W env IMG_USER="$IMG_USER" SSH="$SSH" EXTRA_PKGS="$EXTRA_PKGS" LABEL="$LABEL" GIT_REV="$GIT_REV" VARIANT="$VARIANT" /bin/bash /tmp/chroot-stage.sh
+chroot $W env IMG_USER="$IMG_USER" IMG_HOSTNAME="$IMG_HOSTNAME" SSH="$SSH" EXTRA_PKGS="$EXTRA_PKGS" LABEL="$LABEL" GIT_REV="$GIT_REV" VARIANT="$VARIANT" /bin/bash /tmp/chroot-stage.sh
 cleanup; trap - EXIT
 rm -f $W/etc/resolv.conf; [ -e $W/etc/resolv.conf.skl-orig ] || [ -L $W/etc/resolv.conf.skl-orig ] && mv -T $W/etc/resolv.conf.skl-orig $W/etc/resolv.conf
 rm -rf $W/tmp/skl-debs $W/tmp/chroot-stage.sh
@@ -65,6 +65,7 @@ chk "skladenos-apply.service включён" "ls $W/etc/systemd/system/*.wants/s
 chk "пользователь $IMG_USER (uid 1000)" "grep -q '^$IMG_USER:[^:]*:1000:' $W/etc/passwd"
 chk "пароль $IMG_USER задан" "awk -F: '\$1==\"$IMG_USER\"{exit !(\$2 ~ /^\\\$/)}' $W/etc/shadow"
 chk "нет пользователя mobian (если IMG_USER другой)" "[ \"$IMG_USER\" = mobian ] || ! grep -q '^mobian:' $W/etc/passwd"
+chk "имя хоста $IMG_HOSTNAME" "[ \"\$(cat $W/etc/hostname)\" = \"$IMG_HOSTNAME\" ] && grep -q \"^127.0.1.1[[:space:]]$IMG_HOSTNAME\" $W/etc/hosts"
 chk "группа $IMG_USER, домашний каталог принадлежит $IMG_USER" "grep -q '^$IMG_USER:' $W/etc/group && [ -d $W/home/$IMG_USER ] && [ \"\$(stat -c %u:%g $W/home/$IMG_USER)\" = 1000:\$(awk -F: '\$1==\"$IMG_USER\"{print \$4}' $W/etc/passwd) ]"
 chk "$IMG_USER в группах sudo, audio, video, dialout, netdev, clock" "for g in sudo audio video dialout netdev clock; do grep -q \"^\$g:.*[:,]$IMG_USER\(,\|\$\)\" $W/etc/group || exit 1; done"
 chk "sudoers skladenos-config на группе (не на имени)" "grep -q '^%sudo ' $W/etc/sudoers.d/sxmo-rtcwake && ! grep -rq '^mobian ' $W/etc/sudoers.d"

@@ -48,6 +48,13 @@ fi
 getent group clock >/dev/null || groupadd -r clock
 for g in $(echo "$GROUPS_WANT" | tr , ' '); do getent group "$g" >/dev/null && usermod -aG "$g" "$IMG_USER" || true; done
 echo "$IMG_USER:1234" | chpasswd
+# имя хоста (в rootfs Mobian — mobian): /etc/hostname и 127.0.1.1 в /etc/hosts
+IMG_HOSTNAME="${IMG_HOSTNAME:-$IMG_USER}"
+OLDH=$(cat /etc/hostname 2>/dev/null || echo mobian)
+echo "$IMG_HOSTNAME" > /etc/hostname
+if grep -q "^127.0.1.1" /etc/hosts; then sed -i "s/^127\.0\.1\.1.*/127.0.1.1\t$IMG_HOSTNAME/" /etc/hosts; else printf '127.0.1.1\t%s\n' "$IMG_HOSTNAME" >> /etc/hosts; fi
+sed -i "s/\b$OLDH\b/$IMG_HOSTNAME/g" /etc/hosts
+echo "имя хоста: $OLDH -> $IMG_HOSTNAME"
 mkdir -p /var/lib/skladenos
 
 say "apt-get update"

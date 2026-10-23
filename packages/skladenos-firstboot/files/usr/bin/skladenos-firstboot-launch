@@ -6,5 +6,12 @@ FLAG="${SKLADENOS_STATE_DIR:-/var/lib/skladenos}/firstboot-done"
 # дать sxmo_hook_start.sh поднять статус-бар и уведомления
 sleep "${SKLADENOS_FIRSTBOOT_DELAY:-4}"
 [ -e "$FLAG" ] && exit 0
+# смена размера шрифта (Ctrl+колесо, Ctrl+плюс/минус) выключена: прокрутка пальцем в foot идёт как колесо,
+# и при случайном Ctrl буквы в мастере раздувались/сжимались (STATE п.148, 151)
+NOZOOM="-o key-bindings.font-increase=none -o key-bindings.font-decrease=none -o mouse-bindings.font-increase=none -o mouse-bindings.font-decrease=none"
+# после жеста foot перестаёт получать касания до события клавиатуры (STATE п.152): помощник «будит» окно после каждого касания
+/usr/lib/skladenos-firstboot/touch-nudge &
+NUDGE=$!
+trap 'kill $NUDGE 2>/dev/null' EXIT INT TERM
 # shellcheck disable=SC2086
-exec foot -a skladenos-firstboot -T "skladenOS: первая загрузка" $SKLADENOS_FIRSTBOOT_FOOT_ARGS /usr/bin/skladenos-firstboot
+foot -a skladenos-firstboot -T "skladenOS: first boot" $NOZOOM $SKLADENOS_FIRSTBOOT_FOOT_ARGS /usr/bin/skladenos-firstboot

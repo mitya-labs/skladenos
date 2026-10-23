@@ -6,6 +6,7 @@ import subprocess
 from dataclasses import dataclass
 from typing import Optional
 
+from .i18n import t
 
 @dataclass
 class WifiNet:
@@ -58,14 +59,14 @@ def parse_wifi_list(text: str) -> list[WifiNet]:
 def friendly_error(msg: str) -> str:
     low = msg.lower()
     if "secrets were required" in low or "password" in low or "802-1x" in low:
-        return "Неверный пароль или не удалось пройти проверку"
+        return t("wifi.bad_pw")
     if "no network with ssid" in low:
-        return "Сеть не найдена (слишком далеко?)"
+        return t("wifi.not_found")
     if "timeout" in low or "timed out" in low:
-        return "Время ожидания подключения истекло"
+        return t("wifi.timeout")
     if "not authorized" in low or "insufficient privileges" in low:
-        return "Нет прав управлять Wi-Fi"
-    return msg.strip().splitlines()[-1] if msg.strip() else "Не удалось подключиться"
+        return t("wifi.no_rights")
+    return msg.strip().splitlines()[-1] if msg.strip() else t("wifi.failed")
 
 
 class WifiBackend:
@@ -84,7 +85,7 @@ class NmcliBackend(WifiBackend):
         try:
             p = subprocess.run([self.binary, *args], input=input, capture_output=True, text=True, timeout=timeout)
         except FileNotFoundError:
-            return 127, "nmcli не найден"
+            return 127, t("wifi.no_nmcli")
         except subprocess.TimeoutExpired:
             return 124, "timeout"
         return p.returncode, (p.stdout + p.stderr)
@@ -92,9 +93,9 @@ class NmcliBackend(WifiBackend):
     def available(self):
         rc, out = self._run(["-t", "-f", "TYPE,STATE", "device"], timeout=10)
         if rc != 0:
-            return False, "NetworkManager недоступен"
+            return False, t("wifi.no_nm")
         if not any(l.startswith("wifi:") for l in out.splitlines()):
-            return False, "Wi-Fi адаптер не найден"
+            return False, t("wifi.no_adapter")
         self._run(["radio", "wifi", "on"], timeout=10)
         return True, ""
 
@@ -112,10 +113,10 @@ class NmcliBackend(WifiBackend):
             return False, friendly_error(out)
         conn = self.connectivity()
         if conn == "full":
-            return True, "Подключено, интернет есть"
+            return True, t("wifi.ok_internet")
         if conn == "portal":
-            return True, "Подключено, но сеть требует вход через браузер"
-        return True, "Подключено, но доступа в интернет нет"
+            return True, t("wifi.ok_portal")
+        return True, t("wifi.ok_no_internet")
 
     def current(self):
         rc, out = self._run(["-t", "-f", "ACTIVE,SSID", "dev", "wifi"], timeout=10)

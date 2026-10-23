@@ -15,6 +15,7 @@ from typing import Callable, Iterable, Optional
 
 from . import FLAG_NAME, PENDING_NAME, STATE_DIR
 
+from .i18n import t
 DEFAULT_USER = "skladen"
 DEFAULT_PASSWORD = "1234"
 MIN_PASSWORD = 6
@@ -28,27 +29,27 @@ Runner = Callable[[list, Optional[str]], tuple]
 
 
 def validate_username(name: str, taken: Iterable[str] = (), current: str = "") -> Optional[str]:
-    """None, если имя годится; иначе текст ошибки по-русски."""
+    """None, если имя годится; иначе текст ошибки на текущем языке."""
     if not name:
-        return "Введите имя пользователя"
+        return t("acc.enter_name")
     if not USERNAME_RE.match(name):
-        return "Имя: строчные латинские буквы, цифры, - и _, начинается с буквы (до 31 символа)"
+        return t("acc.bad_name")
     if name in RESERVED:
-        return "Это системное имя, выберите другое"
+        return t("acc.reserved")
     if name != current and name in set(taken):
-        return "Такой пользователь уже есть"
+        return t("acc.taken")
     return None
 
 
 def validate_password(pw: str, confirm: Optional[str] = None) -> Optional[str]:
     if pw == DEFAULT_PASSWORD:
-        return "Пароль по умолчанию менять нужно: выберите другой"
+        return t("acc.default_pw")
     if len(pw) < MIN_PASSWORD:
-        return "Пароль слишком короткий (минимум %d символов)" % MIN_PASSWORD
+        return t("acc.short_pw", MIN_PASSWORD)
     if any(ord(c) < 32 or ord(c) == 127 for c in pw):
-        return "В пароле недопустимые символы"
+        return t("acc.bad_chars")
     if confirm is not None and pw != confirm:
-        return "Пароли не совпадают"
+        return t("acc.mismatch")
     return None
 
 
@@ -73,7 +74,7 @@ def apply_changes(current: str, new_user: str, password: str, runner: Runner = d
                   state_dir: str = STATE_DIR, taken: Optional[Iterable[str]] = None) -> dict:
     """Работа helper'а (root). Возвращает {'ok', 'error', 'rename_pending'}. Флаг firstboot-done ставится в конце."""
     if is_done(state_dir):
-        return {"ok": False, "error": "Мастер уже пройден"}
+        return {"ok": False, "error": t("acc.already_done")}
     taken = system_users() if taken is None else list(taken)
     err = validate_username(new_user, taken, current) or validate_password(password)
     if err:
@@ -176,4 +177,4 @@ class SudoHelperBackend(AccountBackend):
         try:
             return json.loads(p.stdout.strip().splitlines()[-1])
         except (IndexError, ValueError):
-            return {"ok": False, "error": (p.stderr or p.stdout or "helper не ответил").strip()}
+            return {"ok": False, "error": (p.stderr or p.stdout or t("acc.helper_silent")).strip()}

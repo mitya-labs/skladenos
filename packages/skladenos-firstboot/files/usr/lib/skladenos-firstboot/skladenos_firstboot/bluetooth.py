@@ -14,6 +14,7 @@ import time
 from dataclasses import dataclass
 from typing import Callable, Optional
 
+from .i18n import t
 ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b[()][A-Za-z0-9]")
 PROMPT_PREFIX_RE = re.compile(r"^\[[^\]]*\][#>]\s*")
 MAC_RE = r"(?P<mac>[0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5})"
@@ -210,10 +211,10 @@ class BluetoothctlBackend(BluetoothBackend):
         try:
             self._ensure()
         except FileNotFoundError:
-            return False, "bluetoothctl не найден"
+            return False, t("bt.no_bluetoothctl")
         time.sleep(0.8)
         if self._no_controller:
-            return False, "Bluetooth-адаптер не найден"
+            return False, t("bt.no_adapter")
         return True, ""
 
     def start_scan(self) -> None:
@@ -266,22 +267,22 @@ class BluetoothctlBackend(BluetoothBackend):
             self._drain()
             d = self._devs.get(mac)
             if not (d and d.paired):
-                on_event("status", "Сопряжение...")
+                on_event("status", t("bt.pairing"))
                 self._send("pair " + mac)
                 ev = self._wait({"paired", "pair_failed"}, timeout, on_event)
                 if ev is None:
                     self._send("cancel-pairing")
-                    return False, "Время ожидания сопряжения истекло"
+                    return False, t("bt.pair_timeout")
                 if ev.kind == "pair_failed" and "AlreadyExists" not in ev.text:
-                    return False, "Не удалось сопрячь: " + ev.text
+                    return False, t("bt.pair_failed", ev.text)
             self._send("trust " + mac)
-            on_event("status", "Подключение...")
+            on_event("status", t("bt.connecting"))
             self._drain()
             self._send("connect " + mac)
             ev = self._wait({"connected", "connect_failed"}, 30, on_event)
             if ev is None or ev.kind == "connect_failed":
-                return False, "Не удалось подключить" + (": " + ev.text if ev else " (время вышло)")
-            return True, "Подключено"
+                return False, t("bt.connect_failed") + (": " + ev.text if ev else t("bt.connect_timeout"))
+            return True, t("bt.connected")
         finally:
             self._pairing = False
 

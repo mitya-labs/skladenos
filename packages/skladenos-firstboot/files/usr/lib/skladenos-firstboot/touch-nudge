@@ -1,0 +1,50 @@
+#!/usr/bin/python3
+"""Обход зависания касаний в foot (STATE п.152): после жеста (свайпа) foot/sway перестают доставлять мастеру
+касания и клики, пока в окно не придёт событие клавиатуры. После каждого отпускания пальца через 0,15 с
+нажимаем безвредный Shift (wtype) — окно мастера «просыпается» до следующего касания.
+Запускается из skladenos-firstboot-launch на время работы мастера (нужен WAYLAND_DISPLAY сеанса)."""
+import os
+import select
+import struct
+import subprocess
+import sys
+import time
+
+DEV = os.environ.get("SKLADENOS_TOUCH_DEV", "/dev/input/touchscreen")
+DELAY = float(os.environ.get("SKLADENOS_NUDGE_DELAY", "0.15"))
+EV_ABS, ABS_MT_TRACKING_ID = 3, 0x39
+SIZE = struct.calcsize("llHHi")
+
+
+def nudge() -> None:
+    subprocess.run(["wtype", "-M", "shift", "-m", "shift"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def main() -> int:
+    while not os.path.exists(DEV):
+        time.sleep(1)
+    fd = os.open(DEV, os.O_RDONLY | os.O_NONBLOCK)
+    due = None
+    while True:
+        r, _, _ = select.select([fd], [], [], 0.05 if due else 1.0)
+        if r:
+            try:
+                data = os.read(fd, SIZE * 64)
+            except OSError:
+                time.sleep(1)  # драйвер перепривязан (touch-watchdog): открыть заново
+                os.close(fd)
+                while not os.path.exists(DEV):
+                    time.sleep(1)
+                fd = os.open(DEV, os.O_RDONLY | os.O_NONBLOCK)
+                continue
+            for i in range(0, len(data) - SIZE + 1, SIZE):
+                _, _, t, c, v = struct.unpack("llHHi", data[i:i + SIZE])
+                if t == EV_ABS and c == ABS_MT_TRACKING_ID and v == -1:
+                    due = time.monotonic() + DELAY
+        if due and time.monotonic() >= due:
+            due = None
+            nudge()
+
+
+if __name__ == "__main__":
+    sys.exit(main())

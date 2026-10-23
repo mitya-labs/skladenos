@@ -10,7 +10,7 @@ from skladenos_firstboot import account
 
 def main():
     if os.geteuid() != 0:
-        print(json.dumps({"ok": False, "error": "нужен root"}))
+        print(json.dumps({"ok": False, "error": "root required"}))
         return 1
     caller = os.environ.get("SUDO_USER", "")
     try:
@@ -18,13 +18,13 @@ def main():
     except KeyError:
         uid = -1
     if uid < 1000 or str(uid) != os.environ.get("SUDO_UID", ""):
-        print(json.dumps({"ok": False, "error": "вызов только от обычного пользователя через sudo"}))
+        print(json.dumps({"ok": False, "error": "must be called by a regular user via sudo"}))
         return 1
     try:
         req = json.load(sys.stdin)
         res = account.apply_changes(caller, str(req["username"]), str(req["password"]))
     except Exception as e:  # noqa: BLE001
-        res = {"ok": False, "error": "ошибка запроса: %s" % type(e).__name__}
+        res = {"ok": False, "error": "bad request: %s" % type(e).__name__}
     print(json.dumps(res))
     return 0 if res.get("ok") else 1
 

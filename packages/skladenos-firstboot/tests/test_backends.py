@@ -78,7 +78,7 @@ class BtSession(unittest.TestCase):
     def test_no_controller(self):
         _, ok, why = self.run_pair("noctl")
         self.assertFalse(ok)
-        self.assertIn("адаптер", why)
+        self.assertIn("adapter", why)
 
     def test_missing_binary(self):
         ok, why = bt.BluetoothctlBackend(binary="/nonexistent/bluetoothctl").available()
@@ -101,10 +101,10 @@ class Wifi(unittest.TestCase):
     def test_connect(self):
         ok, msg = self.w.connect("Home-5G", "bad")
         self.assertFalse(ok)
-        self.assertIn("пароль", msg.lower())
+        self.assertIn("password", msg.lower())
         ok, msg = self.w.connect("Home-5G", "goodpass")
         self.assertTrue(ok)
-        self.assertIn("интернет есть", msg)
+        self.assertIn("internet is available", msg)
         self.assertTrue(self.w.connect("Кафе")[0])
 
     def test_current(self):

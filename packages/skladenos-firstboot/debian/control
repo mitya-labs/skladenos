@@ -8,7 +8,7 @@ Rules-Requires-Root: no
 
 Package: skladenos-firstboot
 Architecture: all
-Depends: ${misc:Depends}, python3, python3-textual, bluez, network-manager, sudo, passwd, sxmo-utils, foot
+Depends: ${misc:Depends}, python3, python3-textual, bluez, network-manager, sudo, passwd, sxmo-utils, foot, wtype
 Recommends: skladenos-config
 Description: skladenOS: мастер первой загрузки (Bluetooth-клавиатура, Wi-Fi, пользователь и пароль)
  TUI на Textual в foot для сенсорного экрана SXMO (тапы приходят как клики мыши). Запускается из sway,

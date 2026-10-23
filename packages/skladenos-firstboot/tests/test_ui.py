@@ -1,8 +1,9 @@
 """Тесты UI на демо-бэкендах (нужен python3-textual; без него пропускаются). Тап = клик мыши -> pilot.click."""
-import asyncio, os, sys, unittest
+import asyncio, os, sys, tempfile, unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "files", "usr", "lib", "skladenos-firstboot"))
+os.environ["XDG_CONFIG_HOME"] = tempfile.mkdtemp(prefix="skladenos-test-cfg-")  # сохранённый язык не из ~
 try:
     import textual  # noqa: F401
     HAVE = True
@@ -36,12 +37,72 @@ async def wait_for(pilot, cond, tries=60):
 
 @unittest.skipUnless(HAVE, "textual не установлен")
 class UiFlow(unittest.IsolatedAsyncioTestCase):
-    def make(self, **kw):
+    def make(self, lang="en", **kw):
+        from skladenos_firstboot import i18n
+        if lang:  # язык уже выбран (сохранён): мастер пропускает экран выбора
+            i18n.set_lang(lang)
+            i18n.save()
+        else:
+            try:
+                os.unlink(i18n.config_path())
+            except OSError:
+                pass
+            i18n.set_lang("en")
         from skladenos_firstboot.demo import DemoAccount, DemoBluetooth, DemoWifi
         from skladenos_firstboot.ui import Backends, FirstBootApp
         self.acc = DemoAccount()
         self.osk = FakeOsk()
         return FirstBootApp(Backends(DemoBluetooth(delay=0.2, **kw), DemoWifi(delay=0.1), self.acc, self.osk))
+
+    async def test_language_screen_first_and_persisted(self):
+        from skladenos_firstboot import i18n
+        from skladenos_firstboot.ui import BluetoothScreen, LanguageScreen
+        app = self.make(lang=None)
+        async with app.run_test(size=(84, 40)) as pilot:
+            await pilot.pause(0.2)
+            self.assertIsInstance(app.screen, LanguageScreen)
+            await pilot.click("#lang-ru")
+            self.assertTrue(await wait_for(pilot, lambda: isinstance(app.screen, BluetoothScreen)))
+            self.assertIn("Шаг 1 из 3", str(app.screen.query_one(".title").render()))
+        self.assertEqual(open(i18n.config_path()).read().strip(), "ru")
+        # следующий запуск: язык сохранён, экрана выбора нет
+        app = self.make(lang=None)
+        i18n.set_lang("ru"); i18n.save()
+        app = self.make(lang="ru")
+        async with app.run_test(size=(84, 40)) as pilot:
+            await pilot.pause(0.2)
+            self.assertIsInstance(app.screen, BluetoothScreen)
+            self.assertIn("Шаг 1 из 3", str(app.screen.query_one(".title").render()))
+
+    async def test_language_button_on_every_step(self):
+        """Кнопка «Language» открывает выбор языка; после выбора тот же шаг на новом языке."""
+        from skladenos_firstboot import i18n
+        from skladenos_firstboot.ui import AccountScreen, BluetoothScreen, LanguageScreen, WifiScreen
+        app = self.make(present=False)
+        async with app.run_test(size=(84, 60)) as pilot:
+            await pilot.pause(0.3)
+            for cls, en, de in ((BluetoothScreen, "Step 1 of 3", "Schritt 1 von 3"), (WifiScreen, "Step 2 of 3", "Schritt 2 von 3"),
+                                (AccountScreen, "Step 3 of 3", "Schritt 3 von 3")):
+                self.assertIsInstance(app.screen, cls)
+                self.assertIn(en, str(app.screen.query_one(".title").render()))
+                await pilot.click("#lang")
+                await pilot.pause(0.3)
+                self.assertIsInstance(app.screen, LanguageScreen)
+                await vis(pilot, "#lang-de")
+                await pilot.click("#lang-de")
+                await pilot.pause(0.3)
+                self.assertIsInstance(app.screen, cls)  # тот же шаг, другой язык
+                self.assertIn(de, str(app.screen.query_one(".title").render()))
+                self.assertEqual(i18n.get_lang(), "de")
+                await pilot.click("#lang")
+                await pilot.pause(0.3)
+                await vis(pilot, "#lang-en")
+                await pilot.click("#lang-en")
+                await pilot.pause(0.3)
+                self.assertIn(en, str(app.screen.query_one(".title").render()))
+                if cls is not AccountScreen:
+                    await pilot.click("#skip")
+                    await pilot.pause(0.3)
 
     async def test_full_flow_by_taps(self):
         app = self.make()
@@ -60,10 +121,10 @@ class UiFlow(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(app.screen.query_one("#pw").has_class("hidden"))
             app.screen.query_one("#pw").value = "wrong"
             await pilot.click("#go")
-            self.assertTrue(await wait_for(pilot, lambda: "пароль" in str(app.screen.query_one("#status").render()).lower()))
+            self.assertTrue(await wait_for(pilot, lambda: "password" in str(app.screen.query_one("#status").render()).lower()))
             app.screen.query_one("#pw").value = "password"
             await pilot.click("#go")
-            self.assertTrue(await wait_for(pilot, lambda: "интернет есть" in str(app.screen.query_one("#status").render())))
+            self.assertTrue(await wait_for(pilot, lambda: "internet is available" in str(app.screen.query_one("#status").render())))
             await pilot.click("#skip")
             # шаг 3
             from skladenos_firstboot.ui import AccountScreen, DoneScreen
@@ -74,7 +135,7 @@ class UiFlow(unittest.IsolatedAsyncioTestCase):
             s.query_one("#pw2").value = "1234"
             await pilot.click("#save")
             await pilot.pause(0.2)
-            self.assertIn("по умолчанию", str(s.query_one("#status").render()))
+            self.assertIn("default password", str(s.query_one("#status").render()))
             self.assertEqual(self.acc.calls, [])
             s.query_one("#pw1").value = "s3cret!"
             s.query_one("#pw2").value = "s3cret!"
@@ -91,7 +152,7 @@ class UiFlow(unittest.IsolatedAsyncioTestCase):
         app = self.make(present=False)
         async with app.run_test(size=(70, 60)) as pilot:
             await pilot.pause(0.3)
-            self.assertIn("не найден", str(app.screen.query_one("#status").render()))
+            self.assertIn("not found", str(app.screen.query_one("#status").render()))
             await pilot.click("#skip")
             await pilot.pause(0.3)
             await pilot.click("#skip")

@@ -13,8 +13,10 @@ from textual.screen import Screen
 from textual.widgets import Button, Input, Label, ListItem, ListView, Static
 
 from . import account as acc
+from . import i18n
 from .account import AccountBackend
 from .bluetooth import BluetoothBackend
+from .i18n import t
 from .osk import Osk
 from .wifi import WifiBackend
 
@@ -125,16 +127,36 @@ class StepScreen(Screen):
     def key_escape(self) -> None:
         self.app.osk.hide()
 
+    def lang_button(self) -> "TapButton":
+        return TapButton(t("lang.button"), id="lang")
+
+    def on_lang_pressed(self) -> None:
+        if not getattr(self, "busy", False):  # не пересоздавать экран посреди сопряжения/подключения/сохранения
+            self.app.toggle_lang()
+
+
+class LanguageScreen(StepScreen):
+    def compose(self) -> ComposeResult:
+        with VerticalScroll():
+            yield Label(t("lang.title"), classes="title")
+            yield Static(t("lang.hint"))
+            for code, name in i18n.LANGS.items():
+                yield TapButton(name, id="lang-" + code, variant="primary")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        self.app.choose_lang(event.button.id.split("-", 1)[1])
+
 
 class BluetoothScreen(StepScreen):
     def compose(self) -> ComposeResult:
         with VerticalScroll():
-            yield Label("Шаг 1 из 3. Bluetooth-клавиатура", classes="title")
-            yield Static("Включите клавиатуру в режим сопряжения и выберите её из списка.", id="hint")
-            yield Static("Поиск...", id="status", classes="status")
+            yield Label(t("bt.title"), classes="title")
+            yield Static(t("bt.hint"), id="hint")
+            yield Static(t("bt.searching"), id="status", classes="status")
             yield ListView(id="devs")
-            yield TapButton("Искать заново", id="rescan")
-            yield TapButton("Пропустить, у меня нет клавиатуры", id="skip", variant="primary")
+            yield TapButton(t("bt.rescan"), id="rescan")
+            yield TapButton(t("bt.skip"), id="skip", variant="primary")
+            yield self.lang_button()
 
     def on_mount(self) -> None:
         self.shown: list = []
@@ -148,7 +170,7 @@ class BluetoothScreen(StepScreen):
         bt = self.app.backends.bluetooth
         ok, why = bt.available()
         if not ok:
-            self.app.call_from_thread(self.set_status, why + ". Шаг можно пропустить.", "err")
+            self.app.call_from_thread(self.set_status, t("bt.skippable", why), "err")
             return
         bt.start_scan()
         import time
@@ -168,10 +190,10 @@ class BluetoothScreen(StepScreen):
             return  # не трогать список под пальцем; следующий опрос повторит
         self.shown = key
         sync_list(self.query_one("#devs", ListView),
-                  [(d.mac, ("* " if d.connected else "") + ("[клавиатура] " if d.is_keyboard else "") + d.name)
+                  [(d.mac, ("* " if d.connected else "") + (t("bt.keyboard_tag") if d.is_keyboard else "") + d.name)
                    for d in devs], self.items)
         if not self.sticky:
-            self.set_status("Найдено устройств: %d. Нажмите на клавиатуру в списке." % len(devs) if devs else "Поиск устройств...")
+            self.set_status(t("bt.found", len(devs)) if devs else t("bt.searching_devices"))
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         if self.busy:
@@ -179,10 +201,13 @@ class BluetoothScreen(StepScreen):
         self.pair(event.item.name)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "rescan":
+        bid = event.button.id
+        if bid == "rescan":
             self.shown = []
             self.sticky = False
             self.start()
+        elif bid == "lang":
+            self.on_lang_pressed()
         else:
             self.app.next_step()
 
@@ -191,9 +216,9 @@ class BluetoothScreen(StepScreen):
         self.busy = True
 
         def on_event(kind: str, text: str) -> None:
-            msg = {"passkey": "Введите на Bluetooth-клавиатуре код %s и нажмите Enter" % text,
-                   "passkey_confirm": "Подтверждение кода %s..." % text,
-                   "pin_request": "Используется PIN 0000. Если не подойдёт, введите 0000 и Enter на клавиатуре",
+            msg = {"passkey": t("bt.passkey", text),
+                   "passkey_confirm": t("bt.passkey_confirm", text),
+                   "pin_request": t("bt.pin_request"),
                    "status": text}.get(kind, text)
             self.app.call_from_thread(self.set_status, msg)
 
@@ -207,24 +232,25 @@ class BluetoothScreen(StepScreen):
             self.app.call_from_thread(self.set_status, msg, "err")
 
     def done_ok(self) -> None:
-        self.set_status("Клавиатура подключена. Дальше можно печатать на ней.", "ok")
-        self.query_one("#skip", Button).label = "Далее"
+        self.set_status(t("bt.connected_kb"), "ok")
+        self.query_one("#skip", Button).label = t("next")
         self.app.osk.hide()
 
 
 class WifiScreen(StepScreen):
     def compose(self) -> ComposeResult:
         with VerticalScroll():
-            yield Label("Шаг 2 из 3. Wi-Fi", classes="title")
-            yield Static("Поиск сетей...", id="status", classes="status")
+            yield Label(t("wifi.title"), classes="title")
+            yield Static(t("wifi.searching"), id="status", classes="status")
             yield Static("", id="chosen")
-            yield TapInput(placeholder="Пароль сети", password=True, id="pw", classes="hidden")
-            yield TapButton("Показать/скрыть пароль", id="showpw", classes="hidden")
-            yield TapButton("Подключиться", id="go", variant="success", classes="hidden")
-            yield TapButton("Скрыть клавиатуру", id="hidekb", classes="hidden")
+            yield TapInput(placeholder=t("wifi.password"), password=True, id="pw", classes="hidden")
+            yield TapButton(t("show_pw"), id="showpw", classes="hidden")
+            yield TapButton(t("wifi.connect"), id="go", variant="success", classes="hidden")
+            yield TapButton(t("hide_kb"), id="hidekb", classes="hidden")
             yield ListView(id="nets")
-            yield TapButton("Обновить список", id="rescan")
-            yield TapButton("Пропустить Wi-Fi", id="skip", variant="primary")
+            yield TapButton(t("wifi.refresh"), id="rescan")
+            yield TapButton(t("wifi.skip"), id="skip", variant="primary")
+            yield self.lang_button()
 
     def on_mount(self) -> None:
         self.ssid: Optional[str] = None
@@ -238,9 +264,9 @@ class WifiScreen(StepScreen):
         wifi = self.app.backends.wifi
         ok, why = wifi.available()
         if not ok:
-            self.app.call_from_thread(self.set_status, why + ". Шаг можно пропустить.", "err")
+            self.app.call_from_thread(self.set_status, t("bt.skippable", why), "err")
             return
-        self.app.call_from_thread(self.set_status, "Поиск сетей...")
+        self.app.call_from_thread(self.set_status, t("wifi.searching"))
         nets = wifi.scan()
         self.app.call_from_thread(self.show_nets, nets)
 
@@ -248,8 +274,8 @@ class WifiScreen(StepScreen):
         self.nets = {n.ssid: n for n in nets}
         sync_list(self.query_one("#nets", ListView),
                   [(n.ssid, "%s%s  %d%%%s" % ("* " if n.in_use else "", n.ssid, n.signal,
-                                              "  [пароль]" if n.secured else "")) for n in nets], self.items)
-        self.set_status("Выберите сеть." if nets else "Сети не найдены. Обновите список или пропустите шаг.")
+                                              t("wifi.secured_tag") if n.secured else "")) for n in nets], self.items)
+        self.set_status(t("wifi.choose") if nets else t("wifi.none"))
 
     def panel(self, show: bool) -> None:
         for i in ("pw", "showpw", "go", "hidekb"):
@@ -260,12 +286,12 @@ class WifiScreen(StepScreen):
             return
         self.ssid = event.item.name
         net = self.nets.get(self.ssid)
-        self.query_one("#chosen", Static).update("Сеть: %s" % self.ssid)
+        self.query_one("#chosen", Static).update(t("wifi.network", self.ssid))
         if net and net.secured:
             self.panel(True)
             self.query_one("#pw", Input).value = ""
             self.query_one("#pw", Input).focus()
-            self.set_status("Введите пароль и нажмите «Подключиться».")
+            self.set_status(t("wifi.enter_pw"))
         else:
             self.panel(False)
             self.connect("")
@@ -287,13 +313,15 @@ class WifiScreen(StepScreen):
         elif bid == "go" and self.ssid and not self.busy:
             self.app.osk.hide()
             self.connect(self.query_one("#pw", Input).value)
+        elif bid == "lang":
+            self.on_lang_pressed()
         elif bid == "skip":
             self.app.next_step()
 
     @work(thread=True, exclusive=True, group="wifi-connect")
     def connect(self, password: str) -> None:
         self.busy = True
-        self.app.call_from_thread(self.set_status, "Подключение к %s..." % self.ssid)
+        self.app.call_from_thread(self.set_status, t("wifi.connecting", self.ssid))
         ok, msg = self.app.backends.wifi.connect(self.ssid, password)
         self.busy = False
         if ok:
@@ -304,24 +332,24 @@ class WifiScreen(StepScreen):
     def on_connected(self, msg: str) -> None:
         self.panel(False)
         self.set_status(msg, "ok")
-        self.query_one("#skip", Button).label = "Далее"
+        self.query_one("#skip", Button).label = t("next")
 
 
 class AccountScreen(StepScreen):
     def compose(self) -> ComposeResult:
         cur = self.app.backends.account.current_user()
         with VerticalScroll():
-            yield Label("Шаг 3 из 3. Пользователь и пароль", classes="title")
-            yield Static("Имя пользователя можно оставить или сменить. Пароль по умолчанию (%s) нужно сменить; "
-                         "до этого SSH-вход по паролю открыт только из локальных сетей." % acc.DEFAULT_PASSWORD)
-            yield TapInput(value=cur, placeholder="Имя пользователя", id="user")
-            yield TapInput(placeholder="Новый пароль", password=True, id="pw1")
-            yield TapInput(placeholder="Повторите пароль", password=True, id="pw2")
+            yield Label(t("acc.title"), classes="title")
+            yield Static(t("acc.hint", acc.DEFAULT_PASSWORD))
+            yield TapInput(value=cur, placeholder=t("acc.user"), id="user")
+            yield TapInput(placeholder=t("acc.pw1"), password=True, id="pw1")
+            yield TapInput(placeholder=t("acc.pw2"), password=True, id="pw2")
             yield Static("", id="status", classes="status")
-            yield TapButton("Показать/скрыть пароль", id="showpw")
-            yield TapButton("Скрыть клавиатуру", id="hidekb")
-            yield TapButton("Сохранить", id="save", variant="success")
-            yield TapButton("Пропустить (мастер запустится снова)", id="skip")
+            yield TapButton(t("show_pw"), id="showpw")
+            yield TapButton(t("hide_kb"), id="hidekb")
+            yield TapButton(t("acc.save"), id="save", variant="success")
+            yield TapButton(t("acc.skip"), id="skip")
+            yield self.lang_button()
 
     def on_mount(self) -> None:
         self.busy = False
@@ -344,6 +372,8 @@ class AccountScreen(StepScreen):
             self.app.osk.hide()
         elif bid == "save":
             self.save()
+        elif bid == "lang":
+            self.on_lang_pressed()
         elif bid == "skip":
             self.app.exit(2)
 
@@ -359,7 +389,7 @@ class AccountScreen(StepScreen):
             return
         self.app.osk.hide()
         self.busy = True
-        self.set_status("Сохранение...")
+        self.set_status(t("acc.saving"))
         self.apply(user, p1)
 
     @work(thread=True, exclusive=True, group="account")
@@ -369,7 +399,7 @@ class AccountScreen(StepScreen):
         if res.get("ok"):
             self.app.call_from_thread(self.app.finish, user, bool(res.get("rename_pending")))
         else:
-            self.app.call_from_thread(self.set_status, res.get("error", "Ошибка"), "err")
+            self.app.call_from_thread(self.set_status, res.get("error", t("acc.error")), "err")
 
 
 class DoneScreen(StepScreen):
@@ -379,13 +409,12 @@ class DoneScreen(StepScreen):
 
     def compose(self) -> ComposeResult:
         with VerticalScroll():
-            yield Label("Готово", classes="title")
-            yield Static("Пароль изменён." + (
-                "\nИмя пользователя «%s» применится после перезагрузки (до неё вход по прежнему имени)." % self.user
-                if self.rename else ""), classes="status ok", id="status")
+            yield Label(t("done.title"), classes="title")
+            yield Static(t("done.pw_changed") + (t("done.rename", self.user) if self.rename else ""),
+                         classes="status ok", id="status")
             if self.rename:
-                yield TapButton("Перезагрузить сейчас", id="reboot", variant="success")
-            yield TapButton("Закрыть мастер", id="close", variant="primary")
+                yield TapButton(t("done.reboot"), id="reboot", variant="success")
+            yield TapButton(t("done.close"), id="close", variant="primary")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "reboot":
@@ -397,8 +426,7 @@ class DoneScreen(StepScreen):
 class FirstBootApp(App):
     CSS = CSS
     ALLOW_SELECT = False  # выделение текста не нужно; длинное касание foot (drag) не должно его начинать
-    TITLE = "skladenOS: первая загрузка"
-    BINDINGS = [("ctrl+k", "toggle_osk", "Клавиатура"), ("f2", "toggle_osk", "Клавиатура")]
+    BINDINGS = [("ctrl+k", "toggle_osk", "Keyboard"), ("f2", "toggle_osk", "Keyboard")]
 
     def __init__(self, backends: Backends):
         super().__init__()
@@ -406,9 +434,11 @@ class FirstBootApp(App):
         self.osk = backends.osk
         self.has_bt_keyboard = False
         self._steps = [BluetoothScreen, WifiScreen, AccountScreen]
-        self._i = -1
+        self._i = -1  # индекс текущего шага; экран выбора языка в _steps не входит
+        self.title = t("app.title")
         self._last_touch = 0.0
         self._taplog = os.environ.get("SKLADENOS_FIRSTBOOT_TAPLOG")
+        self.lang_chosen = i18n.load_saved()
 
     def touch_recent(self, within: float = 1.0) -> bool:
         """Было ли касание/прокрутка за последние within секунд (тогда списки не перерисовываем)."""
@@ -427,7 +457,23 @@ class FirstBootApp(App):
         await super().on_event(event)
 
     def on_mount(self) -> None:
-        self.next_step()
+        if self.lang_chosen:
+            self.next_step()
+        else:
+            self.push_screen(LanguageScreen())
+
+    def choose_lang(self, lang: str) -> None:
+        i18n.set_lang(lang)
+        i18n.save()
+        self.title = t("app.title")
+        self.lang_chosen = True
+        self._i = max(self._i, 0)  # с первого запуска -> шаг 1; со шага -> тот же шаг на новом языке
+        self.switch_screen(self._steps[self._i]())
+
+    def toggle_lang(self) -> None:
+        """Открыть выбор языка вместо текущего шага; после выбора шаг пересоздаётся на новом языке
+        (введённый на нём текст сбрасывается)."""
+        self.switch_screen(LanguageScreen())
 
     def next_step(self) -> None:
         self._i += 1

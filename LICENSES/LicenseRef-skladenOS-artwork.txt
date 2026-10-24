@@ -1,0 +1,31 @@
+skladenOS artwork license (all rights reserved)
+
+Copyright (c) 2026 Dmitrii Trifonov. All rights reserved.
+
+This license applies to the skladenOS logo (the accordion mark and its horizontal, stacked and icon variants), the Mitya Labs logo (the dog), the branded wallpapers that contain these logos, and the names "skladenOS", "Skladen" and "Mitya Labs" (see TRADEMARK.md).
+
+No license is granted except the following:
+
+1. You may redistribute the official skladenOS images and packages that contain this artwork unmodified, including the package skladenos-artwork as part of them.
+2. You may show the logo to refer to the project, for example in an article or a review about it.
+
+Any other use, including copying, modification, use in a fork or in another product, or use on goods, requires prior written permission from the copyright holder.
+
+The artwork is not covered by the GPL licenses that apply to the code of this repository. The free wallpapers in the package skladenos-wallpapers are a separate work under CC-BY-SA-4.0.
+
+---
+
+Лицензия на графику skladenOS (все права защищены)
+
+© 2026 Dmitrii Trifonov. Все права защищены.
+
+Лицензия относится к логотипу skladenOS (знак «гармошка» и его варианты), логотипу Mitya Labs (пёс), фирменным обоям с этими логотипами и названиям «skladenOS», «Skladen», «Mitya Labs» (см. TRADEMARK.md).
+
+Других прав не предоставляется, кроме двух:
+
+1. Можно распространять официальные образы и пакеты skladenOS с этой графикой без изменений, включая пакет skladenos-artwork в их составе.
+2. Можно показывать логотип, чтобы сослаться на проект, например в статье или обзоре о нём.
+
+Любое другое использование (копирование, изменение, использование в форке или другом продукте, на товарах) требует предварительного письменного разрешения правообладателя.
+
+На графику не распространяются лицензии GPL, под которыми выпущен код репозитория. Свободные обои из пакета skladenos-wallpapers — отдельное произведение под CC-BY-SA-4.0.

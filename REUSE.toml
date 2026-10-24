@@ -1,0 +1,64 @@
+version = 1
+SPDX-PackageName = "skladenOS"
+SPDX-PackageSupplier = "Dmitrii Trifonov"
+SPDX-PackageDownloadLocation = "https://github.com/mitya-labs/skladenos"
+
+# Порядок важен: при нескольких совпадениях действует последняя подходящая аннотация.
+# Файлы с собственными SPDX-заголовками (например, производные от sxmo-utils под AGPL-3.0-only) оставляются как есть:
+# precedence = "closest" отдаёт приоритет заголовку в самом файле.
+
+# --- код, скрипты, документы, пакетирование (по умолчанию) ---
+[[annotations]]
+path = "**"
+precedence = "closest"
+SPDX-FileCopyrightText = "2026 Dmitrii Trifonov"
+SPDX-License-Identifier = "GPL-3.0-or-later"
+
+# --- патчи ядра: часть Linux, GPL-2.0-only; авторы серий указаны в заголовках патчей ---
+[[annotations]]
+path = "patches/**"
+precedence = "override"
+SPDX-FileCopyrightText = ["Maxim Furman and other authors of the patch series (see patch headers)", "2026 Dmitrii Trifonov"]
+SPDX-License-Identifier = "GPL-2.0-only"
+
+# --- свободные обои: CC BY-SA 4.0 ---
+[[annotations]]
+path = "packages/skladenos-wallpapers/files/**"
+precedence = "closest"
+SPDX-FileCopyrightText = "2026 Dmitrii Trifonov"
+SPDX-License-Identifier = "CC-BY-SA-4.0"
+
+# --- графика skladenOS: логотип, пёс Mitya Labs, фирменные обои (все права защищены, см. TRADEMARK.md) ---
+[[annotations]]
+path = ["packages/skladenos-artwork/files/**", "assets/*.png"]
+precedence = "closest"
+SPDX-FileCopyrightText = "2026 Dmitrii Trifonov"
+SPDX-License-Identifier = "LicenseRef-skladenOS-artwork"
+
+# --- шрифт значков: DejaVu Sans Mono (Bitstream Vera) + Nerd Fonts + наборы значков, см. packages/skladenos-fonts/debian/copyright ---
+[[annotations]]
+path = "packages/skladenos-fonts/files/**"
+precedence = "closest"
+SPDX-FileCopyrightText = ["2003 Bitstream, Inc.", "Tavmjong Bah and the DejaVu authors", "Ryan L McIntyre and the Nerd Fonts contributors", "authors of the bundled icon sets (see debian/copyright)"]
+SPDX-License-Identifier = "Bitstream-Vera AND MIT AND OFL-1.1 AND Apache-2.0 AND CC-BY-4.0 AND Unlicense"
+
+# --- копии чужих текстов лицензий (держатели прав — в самих файлах) ---
+[[annotations]]
+path = "packages/skladenos-fonts/debian/licenses/**"
+precedence = "closest"
+SPDX-FileCopyrightText = "NONE"
+SPDX-License-Identifier = "CC0-1.0"
+
+# --- открытый ключ подписи репозитория ---
+[[annotations]]
+path = ["repo/skladenos-archive-keyring.gpg", "packages/skladenos-archive-keyring/files/usr/share/keyrings/skladenos-archive-keyring.gpg"]
+precedence = "closest"
+SPDX-FileCopyrightText = "NONE"
+SPDX-License-Identifier = "CC0-1.0"
+
+# патч 0002 переносит заголовок под BSD-2-Clause (внутри диффа): учитываем и его
+[[annotations]]
+path = "patches/pmi8998-typec/0002-taygoth-v1.diff"
+precedence = "override"
+SPDX-FileCopyrightText = ["Maxim Furman and other authors of the patch series (see patch headers)", "2026 Dmitrii Trifonov"]
+SPDX-License-Identifier = "GPL-2.0-only AND BSD-2-Clause"

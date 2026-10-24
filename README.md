@@ -125,6 +125,8 @@ sudo apt update
 | `skladenos-fonts` | DejaVu Sans Mono (Bitstream Vera) + Nerd Fonts 3.4.0 (MIT) + наборы значков под своими лицензиями (MIT, Apache-2.0, CC BY 4.0, OFL 1.1, Unlicense); тексты и держатели прав — в `packages/skladenos-fonts/debian/copyright`. У старых иконок Devicons от vorillaz держатель прав не подтверждён; логотипы брендов остаются торговыми марками их владельцев (STATE п.141) |
 | Патчи ядра | GPL-2.0 как часть Linux; авторские права у авторов серий (см. заголовки патчей) |
 
+Лицензия каждого файла описана по стандарту [REUSE](https://reuse.software): правила в [`REUSE.toml`](REUSE.toml), тексты лицензий в [`LICENSES/`](LICENSES/), проверка `reuse lint` (проходит: 321 из 321 файла). Правила по названиям и логотипу — [`TRADEMARK.md`](TRADEMARK.md).
+
 Подробно: [`assets/NOTICE.md`](assets/NOTICE.md), `packages/*/debian/copyright`.
 
 ## Благодарности и ссылки

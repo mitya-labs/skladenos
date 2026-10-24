@@ -45,7 +45,7 @@ cp $W/var/lib/skladenos-manifest.txt /out/MANIFEST.txt
 
 say "[5/8] проверки содержимого rootfs"
 fail=0
-chk() { if eval "$2"; then echo "  ok:  $1"; else echo "  НЕТ: $1" >&2; fail=1; fi; }
+chk() { if ( eval "$2" ); then echo "  ok:  $1"; else echo "  НЕТ: $1" >&2; fail=1; fi; }
 chk "ядро $KREL: vmlinuz" "[ -s $W/boot/vmlinuz-$KREL ]"
 chk "ядро $KREL: initrd" "[ -s $W/boot/initrd.img-$KREL ]"
 chk "ядро $KREL: модули" "[ -d $W/lib/modules/$KREL ]"

@@ -21,9 +21,7 @@ done
 KDEB=$(ls $D/linux-image-7.2-sdm845_*.deb); KPKG=linux-image-7.2-sdm845; KREL=7.2-sdm845
 say "apt-mark hold версий (testing ломается апгрейдами; STATE п.13, scripts/mobian-postinstall)"
 # ядро 6.12 уходит (заменяется нашим 7.2), поэтому в список не входит
-# sxmo-utils, sway, swaybg и foot: патчи skladenos-apply рассчитаны на sxmo-utils 1.12, мастер и touch-nudge отлажены на sway 1.12 / foot 1.28;
-# обновлять осознанно после packages/test-apply.sh (apt upgrade их не трогает)
-HOLD="rmtfs tqftpserv qrtr-tools alsa-ucm-conf droid-juicer firmware-qcom-soc firmware-qcom-dsp qbootctl sxmo-utils sway swaybg foot"
+HOLD="rmtfs tqftpserv qrtr-tools alsa-ucm-conf droid-juicer firmware-qcom-soc firmware-qcom-dsp qbootctl"
 for p in $HOLD; do dpkg -s "$p" >/dev/null 2>&1 && apt-mark hold "$p" || true; done
 
 say "пользователь $IMG_USER (uid 1000) и пароль по умолчанию 1234"
@@ -67,6 +65,10 @@ say "установка ядра, skladenos-*, зависимостей"
 apt-get install -y -o Acquire::Retries=5 -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold \
   "$KDEB" $D/skladenos-wallpapers_*.deb $D/skladenos-fonts_*.deb $D/skladenos-config_*.deb $D/skladenos-artwork_*.deb $D/skladenos-firstboot_*.deb $D/skladenos-archive-keyring_*.deb \
   sxmo-utils jq sudo swaybg network-manager python3 openssh-server $EXTRA_PKGS
+
+# sxmo-utils, sway, swaybg и foot: патчи skladenos-apply рассчитаны на sxmo-utils 1.12, мастер и touch-nudge отлажены на sway 1.12 / foot 1.28;
+# обновлять осознанно после packages/test-apply.sh (apt upgrade их не трогает). Холдим после установки: до неё apt-mark hold пропускает отсутствующие пакеты.
+for p in sxmo-utils sway swaybg foot; do dpkg -s "$p" >/dev/null 2>&1 && apt-mark hold "$p" || echo "ВНИМАНИЕ: $p не установлен, hold не поставлен"; done
 
 say "удаление ядра 6.12 (в boot будет только 7.2)"
 OLD=$(dpkg-query -W -f='${Package}\n' 'linux-image-6.*' 'linux-image-sdm845' 2>/dev/null | tr '\n' ' ' || true)

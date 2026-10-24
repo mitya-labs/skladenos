@@ -1,3 +1,9 @@
+skladenos-archive-keyring (0.1.2) unstable; urgency=medium
+
+  * Репозиторий опубликован (https://mitya-labs.github.io/apt): источник включён, компоненты main и non-free.
+
+ -- Dmitrii Trifonov <53140442+DmitriiTrifonov@users.noreply.github.com>  Sat, 24 Oct 2026 18:00:00 +0300
+
 skladenos-archive-keyring (0.1.1) unstable; urgency=medium
 
   * Имя релиза репозитория: garmon (Suites: garmon).

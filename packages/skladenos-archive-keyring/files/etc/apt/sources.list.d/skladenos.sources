@@ -1,9 +1,6 @@
-# apt-репозиторий skladenOS (эмуляторы и другие пакеты проекта). Пока репозиторий не опубликован, источник выключен:
-# после публикации (STATE п.160) заменить «Enabled: no» на «Enabled: yes» (или удалить строку) и сделать `sudo apt update`.
-# Компонент non-free (несвободная графика, PumpkinOS) добавляйте в Components вручную: `main non-free`.
+# apt-репозиторий skladenOS, релиз garmon (эмуляторы, метапакеты и другие пакеты проекта): https://mitya-labs.github.io/apt
 Types: deb
 URIs: https://mitya-labs.github.io/apt
 Suites: garmon
-Components: main
+Components: main non-free
 Signed-By: /usr/share/keyrings/skladenos-archive-keyring.gpg
-Enabled: no

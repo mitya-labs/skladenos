@@ -3,6 +3,42 @@
 Цель: воспроизвести текущее рабочее состояние с нуля. Детали и история — в `STATE.md`.
 Всё ниже выполняется с Мака в корне репозитория. Время: около 25–30 минут без учёта скачивания.
 
+> **Актуальный путь (с 23.10) — готовый образ skladenOS, раздел A ниже.** Разделы 0–11 описывают прежний путь
+> «чистый Mobian + ручная постнастройка» (пользователь `mobian`, Phosh): он нужен для прошивок Android (§1) и аварийных путей (§7),
+> а вся остальная система собирается образом.
+
+# A. Образ skladenOS: сборка и прошивка (около 15 минут без скачивания)
+
+Нужны: Docker (сборка), `fastboot`, `images/mobian/` (rootfs Mobian и `boot-beryllium-ebbg-rw.img`, §0), прошивки Android уже залиты (§1).
+
+```sh
+packages/build.sh skladenos-config                       # по одному пакету за вызов → out/packages/*.deb
+packages/build.sh skladenos-firstboot                    # и так для каждого изменённого skladenos-*
+build/image/build.sh check                               # предпосылки, секунды
+build/image/build.sh build                               # Docker, ~5–6 мин → out/image/<ГГГГММДД-ЧЧММ>/ (самопроверка [5/8] должна быть без «НЕТ»)
+```
+Телефон в fastboot (Vol− + Power), кабель прямо в Мак:
+```sh
+scripts/snapshot-flash out/image/<метка>                 # СТИРАЕТ телефон; распаковка, sha256, проверка rw, запрос yes, запись ~140 с
+```
+`fastboot reboot` после записи обычно виснет или пишет `could not clear input/output pipe e00002d6` (безвредно): выйти из fastboot
+долгим нажатием питания (иногда помогает перетыкание кабеля). Первая загрузка 1–2 минуты.
+
+**Первая загрузка образа:** мастер (`skladenos-firstboot`, язык выбирается на первом экране; Bluetooth-клавиатура → Wi‑Fi → имя
+пользователя и пароль). До мастера вход `skladen` / `1234` (SSH по паролю открыт только из локальных сетей). Смена имени применяется
+после перезагрузки (юнит `skladenos-firstboot-rename`, файл `/var/lib/skladenos/rename-pending`); флаг `firstboot-done` — мастер больше не запускается.
+
+**После прошивки на Маке:** `ssh-keygen -R 10.66.0.1` (новый ключ хоста); доступ — `scripts/phone-ssh` (`PHONE_USER`, `PHONE_PASS`;
+`--put` копирует файлы); перед работой по SSH — `phone-nosleep on`. Имя хоста в образе — `skladen` (`IMG_HOSTNAME`).
+Проверка живой системы: `skladenos-touch-watchdog` active, мастер в `foot` с `touch-nudge`, в журнале нет ошибок кроме шума SXMO (STATE п.155).
+
+Переменные сборки (`VARIANT=ebbg|tianma`, `IMG_USER`, `IMG_HOSTNAME`, `SSH`, `EXTRA_PKGS`) и устройство образа — в шапке `build/image/build.sh` и `build/image/README.md`.
+
+---
+
+# Прежний путь: чистый Mobian + ручная постнастройка
+
+
 ## 0. Что должно быть под рукой
 
 Артефакты лежат в `images/` (в git **не входят**, хранить отдельно; еженедельные образы Mobian на сайте

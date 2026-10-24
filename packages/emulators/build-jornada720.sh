@@ -16,7 +16,19 @@ docker run --rm -v "$W":/work -e QEMU_TAG="$QEMU_TAG" -e J720_REF="$J720_REF" -e
   git -C j720 rev-parse HEAD > j720.rev
   rm -rf qemu-src build dest
   git clone -q --depth 1 -b "$QEMU_TAG" https://gitlab.com/qemu-project/qemu.git qemu-src
-  ln -s ../../../j720/src/hw/arm/jornada720.c qemu-src/hw/arm/jornada720.c
+  # копия, а не симлинк: в ней правим регистрацию машины под QEMU >= 11 (иначе jornada720 не появляется в qemu-system-arm: -M help)
+  cp j720/src/hw/arm/jornada720.c qemu-src/hw/arm/jornada720.c
+  if [ -f qemu-src/include/hw/arm/machines-qom.h ] && ! grep -q arm_machine_interfaces qemu-src/hw/arm/jornada720.c; then
+    python3 - <<PY
+p = "qemu-src/hw/arm/jornada720.c"
+s = open(p).read()
+old = "    .instance_size = sizeof(Jornada720MachineState),\n};"
+assert old in s
+s = s.replace(old, "    .instance_size = sizeof(Jornada720MachineState),\n    .interfaces = arm_machine_interfaces,\n};", 1)
+s = s.replace("#include \"qemu/osdep.h\"\n", "#include \"qemu/osdep.h\"\n#include \"hw/arm/machines-qom.h\"\n", 1)
+open(p, "w").write(s)
+PY
+  fi
   cd qemu-src && for p in ../j720/patches/0*.patch; do git apply "$p" && echo "применён $(basename $p)"; done && cd ..
   mkdir build && cd build
   ../qemu-src/configure --target-list=arm-softmmu --enable-sdl --enable-slirp --disable-docs --disable-tools --disable-guest-agent \

@@ -12,11 +12,16 @@ while [ $# -gt 0 ]; do case "$1" in --test-key) TEST=1 ;; --serve) SERVE="${2:-8
 if [ "$TEST" = 1 ]; then GH="$R/out/test-gnupg"; else GH="${SKLADENOS_GNUPGHOME:-$HOME/.skladenos-repo-gnupg}"; fi
 mkdir -p "$GH"; chmod 700 "$GH"
 docker build -q -t skladenos-repo "$R/repo" >/dev/null
-docker run --rm $([ -t 0 ] && echo -it) -v "$R/repo/conf":/conf:ro -v "$R/out/packages":/debs:ro -v "$OUT":/out -v "$GH":/gnupg-src:ro -e TEST="$TEST" skladenos-repo bash -ec '
+docker run --rm $([ -t 0 ] && echo -it) -v "$R/repo/conf":/conf:ro -v "$R/out/packages":/debs:ro -v "$OUT":/out -v "$GH":/gnupg-src -e TEST="$TEST" skladenos-repo bash -ec '
   # gpg-agent не умеет сокеты в каталоге, смонтированном с Мака: работаем с копией ключа внутри контейнера
   export GNUPGHOME=/tmp/gnupg; mkdir -p $GNUPGHOME && cp -a /gnupg-src/. $GNUPGHOME/ 2>/dev/null; chmod 700 $GNUPGHOME
-  if [ "$TEST" = 1 ] && ! gpg --list-secret-keys 2>/dev/null | grep -q sec; then
-    gpg --batch --passphrase "" --quick-generate-key "skladenOS TEST (не для публикации)" ed25519 sign 1d
+  if [ "$TEST" = 1 ]; then
+    # тестовый ключ одноразовый, но стабильный между сборками: секретная часть лежит в out/test-gnupg/secret.asc
+    if [ -f /gnupg-src/secret.asc ]; then gpg --batch --import /gnupg-src/secret.asc 2>/dev/null
+    else
+      gpg --batch --passphrase "" --quick-generate-key "skladenOS TEST (не для публикации)" ed25519 sign 30d
+      gpg --batch --export-secret-keys --armor > /gnupg-src/secret.asc
+    fi
   fi
   [ "$(gpg --list-secret-keys 2>/dev/null | grep -c sec)" -ge 1 ] || { echo "нет ключа подписи: repo/make-key.sh" >&2; exit 1; }
   mkdir -p /out/conf && cp /conf/* /out/conf/

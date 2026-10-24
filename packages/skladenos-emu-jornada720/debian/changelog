@@ -1,3 +1,9 @@
+skladenos-emu-jornada720 (0.1.1) unstable; urgency=medium
+
+  * Машина jornada720 регистрируется для qemu-system-arm в QEMU 11.x (arm_machine_interfaces); в 0.1.0 QEMU отвечал unsupported machine type.
+
+ -- Dmitrii Trifonov <53140442+DmitriiTrifonov@users.noreply.github.com>  Sat, 24 Oct 2026 16:00:00 +0300
+
 skladenos-emu-jornada720 (0.1.0) unstable; urgency=medium
 
   * Первая версия: QEMU с машиной HP Jornada 720 (форк qemu-jornada720), лаунчер skladenos-jornada720, пункт меню Scripts.

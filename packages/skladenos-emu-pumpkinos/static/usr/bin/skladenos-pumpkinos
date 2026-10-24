@@ -1,0 +1,37 @@
+#!/bin/sh
+# PumpkinOS (Palm OS) под Wayland. Меню Scripts → «PumpkinOS» вызывает этот скрипт. Без ROM.
+#   skladenos-pumpkinos [run|reset|menu]   (без аргумента — menu)
+# Дерево PumpkinOS запускается из своего каталога и пишет в него (vfs/, pumpkin.log), поэтому пакет (только чтение)
+# копируется в ~/.local/share/skladenos/pumpkinos; при новой версии пакета обновляется всё, кроме vfs/app_storage и vfs/app_install.
+SRC=/usr/lib/skladenos/pumpkinos
+DST="${XDG_DATA_HOME:-$HOME/.local/share}/skladenos/pumpkinos"
+STAMP="$(cat "$SRC/../../../share/doc/skladenos-emu-pumpkinos/SOURCE" 2>/dev/null | tail -1)"
+
+sync_tree() { # $1 = полный сброс
+	if [ "$1" = reset ]; then rm -rf "$DST"; fi
+	if [ ! -d "$DST" ]; then
+		mkdir -p "$DST" && cp -a "$SRC/." "$DST/" && printf '%s\n' "$STAMP" > "$DST/.skladenos-stamp"
+	elif [ "$(cat "$DST/.skladenos-stamp" 2>/dev/null)" != "$STAMP" ]; then
+		for f in "$SRC"/*; do
+			n="$(basename "$f")"; [ "$n" = vfs ] && continue
+			rm -rf "$DST/$n"; cp -a "$f" "$DST/$n"
+		done
+		cp -an "$SRC/vfs/." "$DST/vfs/"
+		printf '%s\n' "$STAMP" > "$DST/.skladenos-stamp"
+	fi
+}
+
+case "${1:-menu}" in
+run)
+	sync_tree
+	export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+	cd "$DST" && exec ./pumpkin_pmos.sh ;;
+reset) sync_tree reset; sxmo_notify_user.sh "PumpkinOS: данные сброшены" 2>/dev/null || echo "PumpkinOS: данные сброшены" ;;
+menu)
+	choice="$(printf '%s\n' "Запустить" "Сбросить данные (стереть приложения и записи)" "Закрыть" | sxmo_dmenu.sh -i -p "PumpkinOS")" || exit 0
+	case "$choice" in
+	"Запустить") exec "$0" run ;;
+	"Сбросить"*) exec "$0" reset ;;
+	esac ;;
+*) echo "использование: skladenos-pumpkinos [run|reset|menu]" >&2; exit 2 ;;
+esac

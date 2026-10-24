@@ -6,8 +6,12 @@ set -euo pipefail
 R="$(cd "$(dirname "$0")/.." && pwd)"; PKG="${1:?имя пакета из packages/}"
 [ -d "$R/packages/$PKG/debian" ] || { echo "нет packages/$PKG/debian" >&2; exit 1; }
 mkdir -p "$R/out/packages"
-docker build -q -t skladenos-kbuild "$R/build/kernel" >/dev/null
-docker run --rm -v "$R/packages/$PKG":/pkg:ro -v "$R/out/packages":/out skladenos-kbuild bash -c '
+# пакеты эмуляторов (arm64, с бинарниками) собираются в окружении с их библиотеками (нужны dpkg-shlibdeps): packages/emulators/Dockerfile
+case "$PKG" in
+  skladenos-emu-*) IMG=skladenos-emubuild; docker build -q -t "$IMG" "$R/packages/emulators" >/dev/null ;;
+  *) IMG=skladenos-kbuild; docker build -q -t "$IMG" "$R/build/kernel" >/dev/null ;;
+esac
+docker run --rm -v "$R/packages/$PKG":/pkg:ro -v "$R/out/packages":/out "$IMG" bash -c '
   set -e; cp -a /pkg /build && cd /build
   dpkg-buildpackage -b -uc -us >/tmp/build.log 2>&1 || { tail -40 /tmp/build.log; exit 1; }
   cp -v ../*.deb /out/

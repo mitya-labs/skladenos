@@ -1,0 +1,10 @@
+#!/usr/bin/make -f
+%:
+	dh $@
+
+override_dh_auto_install:
+	cp -a build/. debian/skladenos-emu-jornada720/
+	cp -a static/. debian/skladenos-emu-jornada720/
+
+override_dh_strip:
+	# бинарник уже собран с strip в build-jornada720.sh

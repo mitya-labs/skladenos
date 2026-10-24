@@ -37,7 +37,8 @@ if [ -f "$WP" ]; then
 	systemd-run --user --collect --unit=sxmo-wallpaper -E WAYLAND_DISPLAY -E XDG_RUNTIME_DIR swaybg -o DSI-1 -i "$WP" -m fill >/dev/null 2>&1
 fi
 # QEMU (Jornada) после смены размера окна надо «пнуть», иначе картинка остаётся мелкой (STATE п.111)
-[ -x "$HOME/.local/bin/sxmo_qemu_resize.sh" ] && pgrep -x qemu-system-arm >/dev/null 2>&1 && "$HOME/.local/bin/sxmo_qemu_resize.sh" >/dev/null 2>&1 &
+QRESIZE="$(command -v sxmo_qemu_resize.sh 2>/dev/null || ls "$HOME/.local/bin/sxmo_qemu_resize.sh" 2>/dev/null)"
+[ -n "$QRESIZE" ] && pgrep -x qemu-system-arm >/dev/null 2>&1 && "$QRESIZE" >/dev/null 2>&1 &
 # часы-виджет читает метку ориентации при старте → перезапускаем
 systemctl --user restart sxmo_desktop_widget >/dev/null 2>&1 &
 sxmo_hook_statusbar.sh time >/dev/null 2>&1

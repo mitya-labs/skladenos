@@ -1,0 +1,11 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: WindEmu
+Source: https://github.com/DmitriiTrifonov/WindEmu
+Comment: Форк https://github.com/Treeki/WindEmu (ветка pmos). Ревизия — в /usr/share/doc/skladenos-emu-psion/SOURCE.
+ ROM Psion не распространяется. Полный текст MPL-2.0 — в LICENSE.WindEmu рядом.
+
+Files: *
+Copyright: Treeki and WindEmu contributors; 2026 Dmitrii Trifonov (форк)
+License: MPL-2.0
+ This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0. If a copy of the MPL was not distributed
+ with this file, You can obtain one at https://mozilla.org/MPL/2.0/. The license text is in /usr/share/doc/skladenos-emu-psion/LICENSE.WindEmu.

@@ -1,0 +1,19 @@
+#!/bin/sh
+# Psion 5mx (EPOC) в WindEmu (Qt5, Wayland). Меню Scripts → «Psion 5mx» вызывает этот скрипт.
+#   skladenos-psion [run|cold|menu]   (без аргумента — menu)
+# ROM нужен свой (в пакет не входит): ~/roms/5mx_eng.bin или PSION_ROM=/путь/к/rom. Состояние сохраняется при выходе.
+LIB=/usr/lib/skladenos/windemu
+ROM="${PSION_ROM:-$HOME/roms/5mx_eng.bin}"
+notify() { sxmo_notify_user.sh "$1" 2>/dev/null || echo "$1" >&2; }
+[ -f "$ROM" ] || [ "${1:-menu}" = menu ] || { notify "Psion 5mx: нет ROM ($ROM). Положите свой 5mx_eng.bin туда."; exit 1; }
+case "${1:-menu}" in
+run) exec "$LIB/run-sway.sh" "$ROM" ;;
+cold) exec "$LIB/run-sway.sh" "$ROM" --cold-boot ;;
+menu)
+	choice="$(printf '%s\n' "Запустить" "Холодный запуск (забыть состояние)" "Закрыть" | sxmo_dmenu.sh -i -p "Psion 5mx")" || exit 0
+	case "$choice" in
+	"Запустить") exec "$0" run ;;
+	"Холодный"*) exec "$0" cold ;;
+	esac ;;
+*) echo "использование: skladenos-psion [run|cold|menu]" >&2; exit 2 ;;
+esac

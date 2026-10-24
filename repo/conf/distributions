@@ -1,0 +1,8 @@
+Origin: skladenOS
+Label: skladenOS
+Codename: skladenos
+Suite: stable
+Architectures: arm64
+Components: main non-free
+Description: skladenOS: пакеты для Poco F1 (Mobian + SXMO)
+SignWith: DEFAULT

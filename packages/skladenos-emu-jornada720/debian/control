@@ -1,0 +1,17 @@
+Source: skladenos-emu-jornada720
+Section: otherosfs
+Priority: optional
+Maintainer: Dmitrii Trifonov <53140442+DmitriiTrifonov@users.noreply.github.com>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+
+Package: skladenos-emu-jornada720
+Architecture: arm64
+Depends: ${shlibs:Depends}, ${misc:Depends}, python3, sxmo-utils
+Recommends: php-cli
+Description: skladenOS: эмулятор HP Jornada 720 (Windows CE) на QEMU
+ QEMU с машиной HP Jornada 720 (StrongARM SA-1110) из форка qemu-jornada720: сохранение состояния при выходе,
+ карта CompactFlash (образ или папка), сеть, сглаженное масштабирование. Лежит отдельно от системного qemu
+ (/usr/lib/skladenos/jornada720). ROM в пакет не входит: нужен свой, ~/roms/jornada720.bin.
+ Запуск: пункт «Jornada 720» в меню Scripts или skladenos-jornada720.

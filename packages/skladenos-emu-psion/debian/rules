@@ -1,0 +1,9 @@
+#!/usr/bin/make -f
+%:
+	dh $@
+
+override_dh_auto_install:
+	cp -a build/. debian/skladenos-emu-psion/
+	cp -a static/. debian/skladenos-emu-psion/
+
+override_dh_strip:

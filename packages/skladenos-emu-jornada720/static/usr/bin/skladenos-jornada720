@@ -1,0 +1,77 @@
+#!/bin/sh
+# HP Jornada 720 (Windows CE) в QEMU: запуск и управление. Меню Scripts → «Jornada 720» вызывает этот скрипт.
+#   skladenos-jornada720 [run|fast|smooth|fresh|touchdebug|stop|cf|menu]   (без аргумента — menu)
+# ROM нужен свой (в пакет не входит): ~/roms/jornada720.bin или J720_ROM=/путь/к/rom.
+LIB=/usr/lib/skladenos/jornada720
+export J720_ROM="${J720_ROM:-$HOME/roms/jornada720.bin}"
+
+notify() { sxmo_notify_user.sh "$1" 2>/dev/null || echo "$1" >&2; }
+
+start() { # аргументы run.sh
+	[ -f "$J720_ROM" ] || { notify "Jornada 720: нет ROM ($J720_ROM). Положите свой jornada720.bin туда."; exit 1; }
+	"$LIB/run.sh" "$@" &
+	RUN=$!
+	# QEMU в тайловом окне sway рисует мелко, пока не получит resize: «пинаем» окно (STATE п.111)
+	sxmo_qemu_resize.sh --wait
+	wait $RUN
+}
+
+cf_menu() {
+	CF="$LIB/j720-cf.py"; CARDS="$HOME/jornada-cf"; FILES="${J720_FILES:-$HOME/jornada-files}"
+	STATE="${XDG_STATE_HOME:-$HOME/.local/state}/qemu-jornada720/cf"
+	mkdir -p "$CARDS" "$FILES"
+	current="пусто"; [ -f "$STATE" ] && current="$(basename "$(cat "$STATE")")"
+	choice="$(
+		{
+			echo "Вынуть карту"
+			echo "Новая карта"
+			echo "Папка: $(basename "$FILES") (синхронизация)"
+			for img in "$CARDS"/*.img; do [ -e "$img" ] && echo "Образ: $(basename "$img")"; done
+			echo "Закрыть"
+		} | sxmo_dmenu.sh -p "CF: $current"
+	)" || exit 0
+	run() {
+		status=0
+		out="$("$CF" "$@" 2>&1)" || status=$?
+		notify "$(echo "$out" | sed 's/^j720-cf: //; s|'"$HOME"'|~|g')"
+		return $status
+	}
+	case "$choice" in
+	"Вынуть карту") run eject ;;
+	"Новая карта")
+		n=1; while [ -e "$CARDS/card$n.img" ]; do n=$((n + 1)); done
+		run new "$CARDS/card$n.img" && run insert "$CARDS/card$n.img" ;;
+	"Папка: "*) run insert "$FILES" ;;
+	"Образ: "*) run insert "$CARDS/${choice#Образ: }" ;;
+	esac
+}
+
+menu() {
+	choice="$(printf '%s\n' \
+		"Запустить" "Быстро (загрузка быстрее, время CE идёт быстро)" "Точные пиксели (рамки)" \
+		"Холодный запуск (забыть состояние)" "Карта CF" "Остановить (сохранить состояние)" "Отладка тача (лог ~/touch.log)" "Закрыть" |
+		sxmo_dmenu.sh -i -p "Jornada 720")" || exit 0
+	case "$choice" in
+	"Запустить") exec "$0" run ;;
+	"Быстро"*) exec "$0" fast ;;
+	"Точные пиксели"*) exec "$0" smooth ;;
+	"Холодный"*) exec "$0" fresh ;;
+	"Карта CF") exec "$0" cf ;;
+	"Остановить"*) exec "$0" stop ;;
+	"Отладка"*) exec "$0" touchdebug ;;
+	esac
+}
+
+case "${1:-menu}" in
+run) start ;;
+fast) start --fast ;;
+smooth) QEMU_SDL_SCALE=integer start ;;
+fresh) start --fresh ;;
+touchdebug) export J720_TOUCH_DEBUG=1; start 2>"$HOME/touch.log" ;;
+stop)
+	# SIGTERM процессу j720-save.py сохраняет машину и закрывает QEMU; иначе просто завершаем QEMU
+	pkill -TERM -f "python3 ./j720-save.py" || pkill -x qemu-system-arm ;;
+cf) cf_menu ;;
+menu) menu ;;
+*) echo "использование: skladenos-jornada720 [run|fast|smooth|fresh|touchdebug|stop|cf|menu]" >&2; exit 2 ;;
+esac

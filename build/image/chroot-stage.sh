@@ -21,7 +21,9 @@ done
 KDEB=$(ls $D/linux-image-7.2-sdm845_*.deb); KPKG=linux-image-7.2-sdm845; KREL=7.2-sdm845
 say "apt-mark hold версий (testing ломается апгрейдами; STATE п.13, scripts/mobian-postinstall)"
 # ядро 6.12 уходит (заменяется нашим 7.2), поэтому в список не входит
-HOLD="rmtfs tqftpserv qrtr-tools alsa-ucm-conf droid-juicer firmware-qcom-soc firmware-qcom-dsp qbootctl"
+# sxmo-utils, sway, swaybg и foot: патчи skladenos-apply рассчитаны на sxmo-utils 1.12, мастер и touch-nudge отлажены на sway 1.12 / foot 1.28;
+# обновлять осознанно после packages/test-apply.sh (apt upgrade их не трогает)
+HOLD="rmtfs tqftpserv qrtr-tools alsa-ucm-conf droid-juicer firmware-qcom-soc firmware-qcom-dsp qbootctl sxmo-utils sway swaybg foot"
 for p in $HOLD; do dpkg -s "$p" >/dev/null 2>&1 && apt-mark hold "$p" || true; done
 
 say "пользователь $IMG_USER (uid 1000) и пароль по умолчанию 1234"

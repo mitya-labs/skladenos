@@ -1,0 +1,5 @@
+skladenos-emu-psion (0.1.0) unstable; urgency=medium
+
+  * Первая версия: WindEmu (эмулятор Psion 5mx, ветка pmos), лаунчер skladenos-psion, пункт меню Scripts.
+
+ -- Dmitrii Trifonov <53140442+DmitriiTrifonov@users.noreply.github.com>  Sat, 24 Oct 2026 15:30:00 +0300

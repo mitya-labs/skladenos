@@ -1,0 +1,16 @@
+Source: skladenos-emu-psion
+Section: otherosfs
+Priority: optional
+Maintainer: Dmitrii Trifonov <53140442+DmitriiTrifonov@users.noreply.github.com>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+
+Package: skladenos-emu-psion
+Architecture: arm64
+Depends: ${shlibs:Depends}, ${misc:Depends}, qtwayland5, sxmo-utils
+Recommends: fonts-symbola
+Description: skladenOS: эмулятор Psion 5mx (EPOC) — WindEmu
+ WindEmu (Qt5) из форка DmitriiTrifonov/WindEmu, ветка pmos: запуск под Wayland, сохранение состояния при выходе,
+ слот CompactFlash (папка или образ), русская раскладка, звук ALSA. ROM Psion в пакет не входит: нужен свой, ~/roms/5mx_eng.bin.
+ Запуск: пункт «Psion 5mx» в меню Scripts или skladenos-psion.

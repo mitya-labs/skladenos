@@ -1,0 +1,3 @@
+#!/bin/sh
+# title="Jornada 720 (HP, Windows CE)"
+exec skladenos-jornada720 menu

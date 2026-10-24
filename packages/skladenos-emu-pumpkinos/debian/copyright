@@ -1,0 +1,13 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: PumpkinOS
+Source: https://github.com/DmitriiTrifonov/PumpkinOS
+Comment: Форк https://github.com/migueletto/PumpkinOS (ветка pmOS). Ревизия — в /usr/share/doc/skladenos-emu-pumpkinos/SOURCE.
+ Лицензии составных частей — в /usr/lib/skladenos/pumpkinos/licenses.
+
+Files: *
+Copyright: Miguel Lopes (migueletto) and PumpkinOS contributors; 2026 Dmitrii Trifonov (форк)
+License: GPL-3
+ This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License
+ version 3 as published by the Free Software Foundation.
+ .
+ On Debian systems, the complete text of the GNU General Public License version 3 can be found in /usr/share/common-licenses/GPL-3.

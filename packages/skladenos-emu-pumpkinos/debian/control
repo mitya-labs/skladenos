@@ -1,0 +1,15 @@
+Source: skladenos-emu-pumpkinos
+Section: non-free/otherosfs
+Priority: optional
+Maintainer: Dmitrii Trifonov <53140442+DmitriiTrifonov@users.noreply.github.com>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+
+Package: skladenos-emu-pumpkinos
+Architecture: arm64
+Depends: ${shlibs:Depends}, ${misc:Depends}, sxmo-utils
+Description: skladenOS: PumpkinOS — открытая реализация Palm OS
+ PumpkinOS из форка DmitriiTrifonov/PumpkinOS, ветка pmOS: окно Wayland без масштабирования композитором,
+ звук ALSA. Данные хранятся в ~/.local/share/skladenos/pumpkinos. ROM не нужен.
+ Запуск: пункт «PumpkinOS» в меню Scripts или skladenos-pumpkinos.

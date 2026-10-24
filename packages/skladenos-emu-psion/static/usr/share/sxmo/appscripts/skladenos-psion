@@ -1,0 +1,3 @@
+#!/bin/sh
+# title="Psion 5mx (EPOC)"
+exec skladenos-psion menu

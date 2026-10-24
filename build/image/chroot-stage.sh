@@ -65,7 +65,7 @@ apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=60 update
 say "установка ядра, skladenos-*, зависимостей"
 # никакого full-upgrade: только то, что нужно нашим пакетам (залоченное не обновится)
 apt-get install -y -o Acquire::Retries=5 -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold \
-  "$KDEB" $D/skladenos-wallpapers_*.deb $D/skladenos-fonts_*.deb $D/skladenos-config_*.deb $D/skladenos-artwork_*.deb $D/skladenos-firstboot_*.deb \
+  "$KDEB" $D/skladenos-wallpapers_*.deb $D/skladenos-fonts_*.deb $D/skladenos-config_*.deb $D/skladenos-artwork_*.deb $D/skladenos-firstboot_*.deb $D/skladenos-archive-keyring_*.deb \
   sxmo-utils jq sudo swaybg network-manager python3 openssh-server $EXTRA_PKGS
 
 say "удаление ядра 6.12 (в boot будет только 7.2)"

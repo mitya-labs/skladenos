@@ -77,6 +77,9 @@ chk "machine-id сброшен" "[ ! -s $W/etc/machine-id ] || grep -q uninitial
 chk "нет ssh host-ключей" "! ls $W/etc/ssh/ssh_host_* >/dev/null 2>&1"
 chk "нет прошивок droid-juicer / status.json" "[ ! -e $W/var/lib/droid-juicer/status.json ]"
 chk "hold ядра" "grep -q 'linux-image-7.2-sdm845' $W/var/lib/skladenos-holds.txt"
+chk "hold sxmo-utils, sway, swaybg, foot" "for p in sxmo-utils sway swaybg foot; do grep -qx \"\$p\" $W/var/lib/skladenos-holds.txt || exit 1; done"
+chk "apt-репозиторий skladenOS (ключ и источник garmon)" "[ -s $W/usr/share/keyrings/skladenos-archive-keyring.gpg ] && grep -q '^Suites: garmon' $W/etc/apt/sources.list.d/skladenos.sources && ! grep -q '^Enabled: no' $W/etc/apt/sources.list.d/skladenos.sources"
+chk "fastfetch: конфиг и логотип skladenOS" "[ -x $W/usr/bin/fastfetch ] && [ -s $W/etc/xdg/fastfetch/config.jsonc ] && [ -s $W/usr/share/skladenos/fastfetch/logo.txt ]"
 chk "хуки zz-qcom-bootimg вернули права на запуск (для обновлений ядра на телефоне)" "[ ! -e $W/etc/kernel/postinst.d/zz-qcom-bootimg ] || [ -x $W/etc/kernel/postinst.d/zz-qcom-bootimg ]"
 [ $fail = 0 ] || { echo "проверки rootfs не прошли" >&2; exit 1; }
 

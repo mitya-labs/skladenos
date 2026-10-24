@@ -40,7 +40,7 @@ newest() { ls -1 "$@" 2>/dev/null | sort -V | tail -1; }
 
 KDEB="$(newest "$R"/out/kernel/linux-image-7.2-sdm845_*.deb || true)"
 PKGS=()
-for p in skladenos-config skladenos-wallpapers skladenos-fonts skladenos-artwork skladenos-firstboot; do
+for p in skladenos-config skladenos-wallpapers skladenos-fonts skladenos-artwork skladenos-firstboot skladenos-archive-keyring; do
   d="$(newest "$R"/out/packages/${p}_*.deb || true)"; PKGS+=("$d")
 done
 

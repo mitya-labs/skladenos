@@ -16,9 +16,9 @@ MARK = [  # (точки, роль цвета)
     ("160,30 240,0 240,130 160,160", "light"),
     ("240,0 320,30 320,160 240,130", "mid"),
 ]
-PALETTE = {
-    "dark": {"light": "#FFE55C", "dark": "#B89B33", "mid": "#E0C247", "text": "#E8E9EF", "accent": "#FFE55C", "bg": "#0D0E15"},    # для тёмного фона
-    "light": {"light": "#F5B800", "dark": "#B8860B", "mid": "#D9A000", "text": "#14151C", "accent": "#C88F00", "bg": "#FFFFFF"},   # для светлого фона
+PALETTE = {  # бирюзовая схема сайта (style.css: --fold-light/mid/dark); подпись одним цветом
+    "dark": {"light": "#5EEADB", "dark": "#2AA79B", "mid": "#3FCFC0", "text": "#E8E9EF", "accent": "#E8E9EF", "bg": "#0D0E15"},    # для тёмного фона
+    "light": {"light": "#1FB5AE", "dark": "#0E7A75", "mid": "#14968F", "text": "#14151C", "accent": "#14151C", "bg": "#FFFFFF"},   # для светлого фона
 }
 
 

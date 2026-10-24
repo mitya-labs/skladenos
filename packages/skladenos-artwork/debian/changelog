@@ -1,3 +1,9 @@
+skladenos-artwork (0.1.1) unstable; urgency=medium
+
+  * Логотип и иконки в бирюзовой схеме сайта (#5EEADB, #2AA79B, #3FCFC0; светлая тема #1FB5AE, #0E7A75, #14968F), подпись одним цветом.
+
+ -- Dmitrii Trifonov <53140442+DmitriiTrifonov@users.noreply.github.com>  Sat, 24 Oct 2026 20:30:00 +0300
+
 skladenos-artwork (0.1.0) unstable; urgency=medium
 
   * Обои вынесены из skladenos-config в отдельный пакет (права защищены).

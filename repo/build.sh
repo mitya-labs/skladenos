@@ -14,7 +14,7 @@ mkdir -p "$GH"; chmod 700 "$GH"
 docker build -q -t skladenos-repo "$R/repo" >/dev/null
 docker run --rm $([ -t 0 ] && echo -it) -v "$R/repo/conf":/conf:ro -v "$R/out/packages":/debs:ro -v "$OUT":/out -v "$GH":/gnupg-src -e TEST="$TEST" skladenos-repo bash -ec '
   # gpg-agent не умеет сокеты в каталоге, смонтированном с Мака: работаем с копией ключа внутри контейнера
-  export GNUPGHOME=/tmp/gnupg; mkdir -p $GNUPGHOME && cp -a /gnupg-src/. $GNUPGHOME/ 2>/dev/null; chmod 700 $GNUPGHOME
+  export GNUPGHOME=/tmp/gnupg; mkdir -p $GNUPGHOME && for f in pubring.kbx trustdb.gpg private-keys-v1.d openpgp-revocs.d; do [ -e /gnupg-src/$f ] && cp -a /gnupg-src/$f $GNUPGHOME/; done; chmod 700 $GNUPGHOME
   if [ "$TEST" = 1 ]; then
     # тестовый ключ одноразовый, но стабильный между сборками: секретная часть лежит в out/test-gnupg/secret.asc
     if [ -f /gnupg-src/secret.asc ]; then gpg --batch --import /gnupg-src/secret.asc 2>/dev/null

@@ -4,10 +4,10 @@
   "logo": {
     "type": "file",
     "source": "/usr/share/skladenos/fastfetch/logo.txt",
-    "color": { "1": "38;2;255;229;92", "2": "38;2;184;155;51", "3": "38;2;224;194;71" },
+    "color": { "1": "38;2;94;234;219", "2": "38;2;42;167;155", "3": "38;2;63;207;192" },
     "padding": { "right": 2 }
   },
-  "display": { "separator": "  ", "key": { "width": 10 }, "color": { "keys": "38;2;255;229;92", "title": "38;2;255;229;92" } },
+  "display": { "separator": "  ", "key": { "width": 10 }, "color": { "keys": "38;2;94;234;219", "title": "38;2;94;234;219" } },
   "modules": [
     "title",
     "separator",

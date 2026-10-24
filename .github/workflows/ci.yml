@@ -1,0 +1,113 @@
+name: CI
+
+# Уровень 1: быстрые проверки (лицензии, shell, тесты). Уровень 2: сборка пакетов и эмуляторов на arm64-раннере.
+# Секретов нет: пакеты сохраняются артефактами, apt-репозиторий подписывается вручную (repo/build.sh).
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  reuse:
+    name: Лицензии (REUSE)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: fsfe/reuse-action@v5
+
+  shellcheck:
+    name: shellcheck (ошибки)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck -S error по всем shell-скриптам
+        run: |
+          fail=0
+          while read -r f; do
+            [ -f "$f" ] && head -1 "$f" | grep -qE '^#!.*(ba)?sh' || continue
+            shellcheck -S error -x "$f" || fail=1
+          done < <(git ls-files)
+          exit $fail
+
+  tests:
+    name: Тесты (мастер первой загрузки, сторож тача)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install textual
+      - name: Мастер первой загрузки
+        working-directory: packages/skladenos-firstboot
+        run: python -m unittest discover -s tests -v
+      - name: Сторож тача
+        working-directory: packages/skladenos-config
+        run: python -m unittest discover -s tests -v
+
+  packages-core:
+    name: Пакеты настроек + тест слоя B (sxmo-utils)
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - name: Собрать skladenos-config, -wallpapers, -fonts
+        run: |
+          for p in skladenos-config skladenos-wallpapers skladenos-fonts; do packages/build.sh "$p"; done
+      - name: Тест слоя B на настоящем sxmo-utils
+        run: packages/test-apply.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deb-core
+          path: out/packages/*.deb
+          retention-days: 14
+
+  packages-other:
+    name: Пакет ${{ matrix.pkg }}
+    runs-on: ubuntu-24.04-arm
+    strategy:
+      fail-fast: false
+      matrix:
+        pkg: [skladenos-firstboot, skladenos-artwork, skladenos-archive-keyring, skladenos-tools, skladenos-dev, skladenos-containers]
+    steps:
+      - uses: actions/checkout@v4
+      - run: packages/build.sh ${{ matrix.pkg }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deb-${{ matrix.pkg }}
+          path: out/packages/*.deb
+          retention-days: 14
+
+  emulators:
+    name: Эмулятор ${{ matrix.emu }}
+    # сборка QEMU и других эмуляторов занимает 5-15 минут: на pull request не запускаем
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04-arm
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - emu: jornada720
+            script: build-jornada720.sh
+            pkg: skladenos-emu-jornada720
+          - emu: psion
+            script: build-windemu.sh
+            pkg: skladenos-emu-psion
+          # PumpkinOS в публичный CI не включён: артефакты публичного репозитория скачивает кто угодно,
+          # а в его дереве лежит лицензия Palm OS SDK, запрещающая распространение (STATE п.158)
+    steps:
+      - uses: actions/checkout@v4
+      - run: packages/emulators/${{ matrix.script }}
+      - run: packages/build.sh ${{ matrix.pkg }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deb-${{ matrix.pkg }}
+          path: out/packages/*.deb
+          retention-days: 14

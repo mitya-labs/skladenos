@@ -7,6 +7,8 @@
 
 # skladenOS
 
+[![CI](https://github.com/mitya-labs/skladenos/actions/workflows/ci.yml/badge.svg)](https://github.com/mitya-labs/skladenos/actions/workflows/ci.yml)
+
 *English summary:* skladenOS is a Linux handheld OS for the **Xiaomi Poco F1** (SDM845): Mobian (Debian forky) + the SXMO (sway) desktop, the Mobian 7.2 kernel with our PMI8998 Type-C/USB-PD patches, and a set of deb packages (settings, a first-boot wizard in 12 languages, fonts, emulators). Images are built with Docker from this repository and flashed with `fastboot`. Packages are available from an apt repository (release `garmon`), see the apt section below. Code is GPL-3.0; the logo and branded artwork are all-rights-reserved. The rest of this README is in Russian.
 
 Linux-палмтоп на базе **Xiaomi Poco F1** (`xiaomi-beryllium`, SDM845): [Mobian](https://mobian.org) (Debian forky/testing) с оконным менеджером [SXMO](https://sxmo.org) (sway), ядро Mobian 7.2.11 с нашими патчами Type-C/PD для PMI8998 и набор deb-пакетов с настройками. Автор: Dmitrii Trifonov (Mitya Labs).

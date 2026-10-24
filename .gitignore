@@ -21,3 +21,6 @@ __pycache__/
 
 # Подготовленное содержимое пакетов эмуляторов (собирается packages/emulators/build-*.sh)
 packages/skladenos-emu-*/build/
+
+# Журнал работ: символическая ссылка на заметку в vault, в git не входит (внутренние заметки)
+STATE.md

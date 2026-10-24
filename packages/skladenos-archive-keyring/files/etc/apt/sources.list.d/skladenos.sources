@@ -3,7 +3,7 @@
 # Компонент non-free (несвободная графика, PumpkinOS) добавляйте в Components вручную: `main non-free`.
 Types: deb
 URIs: https://mitya-labs.github.io/apt
-Suites: skladenos
+Suites: garmon
 Components: main
 Signed-By: /usr/share/keyrings/skladenos-archive-keyring.gpg
 Enabled: no

@@ -1,3 +1,9 @@
+skladenos-archive-keyring (0.1.1) unstable; urgency=medium
+
+  * Имя релиза репозитория: garmon (Suites: garmon).
+
+ -- Dmitrii Trifonov <53140442+DmitriiTrifonov@users.noreply.github.com>  Sat, 24 Oct 2026 17:20:00 +0300
+
 skladenos-archive-keyring (0.1.0) unstable; urgency=medium
 
   * Ключ подписи репозитория (ed25519 B27E8856988A9019BB9A23F2BBBD1474A352F720, до 2031) и выключенный источник apt.

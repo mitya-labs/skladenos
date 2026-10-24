@@ -3,16 +3,17 @@
 #   repo/build.sh                 # все .deb из out/packages/ (повторный запуск обновляет версии)
 #   repo/build.sh --test-key      # подписать одноразовым ключом (только проверка репозитория, ключ в out/test-gnupg; НЕ для публикации)
 #   repo/build.sh --serve [порт]  # после сборки отдать out/repo по http (по умолчанию 8000) для проверки с телефона
+#   repo/build.sh --public        # публичный вариант → out/repo-public/: без skladenos-emu-pumpkinos (лицензия Palm SDK, STATE п.158); публикует repo/publish.sh
 # non-free: пакеты Section: non-free (skladenos-artwork) и эмуляторы с несвободными частями; остальные — main.
 set -euo pipefail
 R="$(cd "$(dirname "$0")/.." && pwd)"
-OUT="$R/out/repo"; mkdir -p "$OUT"
-TEST=0; SERVE=""
-while [ $# -gt 0 ]; do case "$1" in --test-key) TEST=1 ;; --serve) SERVE="${2:-8000}"; [ $# -gt 1 ] && shift ;; esac; shift; done
+TEST=0; SERVE=""; PUBLIC=0
+while [ $# -gt 0 ]; do case "$1" in --test-key) TEST=1 ;; --public) PUBLIC=1 ;; --serve) SERVE="${2:-8000}"; [ $# -gt 1 ] && shift ;; esac; shift; done
+if [ "$PUBLIC" = 1 ]; then OUT="$R/out/repo-public"; else OUT="$R/out/repo"; fi; mkdir -p "$OUT"
 if [ "$TEST" = 1 ]; then GH="$R/out/test-gnupg"; else GH="${SKLADENOS_GNUPGHOME:-$HOME/.skladenos-repo-gnupg}"; fi
 mkdir -p "$GH"; chmod 700 "$GH"
 docker build -q -t skladenos-repo "$R/repo" >/dev/null
-docker run --rm $([ -t 0 ] && echo -it) -v "$R/repo/conf":/conf:ro -v "$R/out/packages":/debs:ro -v "$OUT":/out -v "$GH":/gnupg-src -e TEST="$TEST" skladenos-repo bash -ec '
+docker run --rm $([ -t 0 ] && echo -it) -v "$R/repo/conf":/conf:ro -v "$R/out/packages":/debs:ro -v "$OUT":/out -v "$GH":/gnupg-src -e TEST="$TEST" -e PUBLIC="$PUBLIC" skladenos-repo bash -ec '
   # gpg-agent не умеет сокеты в каталоге, смонтированном с Мака: работаем с копией ключа внутри контейнера
   export GNUPGHOME=/tmp/gnupg; mkdir -p $GNUPGHOME && for f in pubring.kbx trustdb.gpg private-keys-v1.d openpgp-revocs.d; do [ -e /gnupg-src/$f ] && cp -a /gnupg-src/$f $GNUPGHOME/; done; chmod 700 $GNUPGHOME
   if [ "$TEST" = 1 ]; then
@@ -28,8 +29,9 @@ docker run --rm $([ -t 0 ] && echo -it) -v "$R/repo/conf":/conf:ro -v "$R/out/pa
   [ "$TEST" = 1 ] && sed -i /ask-passphrase/d /out/conf/options
   cd /out
   for d in /debs/*.deb; do
+    [ "$PUBLIC" = 1 ] && case "$(basename $d)" in skladenos-emu-pumpkinos_*) echo "пропускаю (не для публикации): $d"; continue ;; esac
     sec=main; dpkg-deb -f "$d" Section | grep -q non-free && sec=non-free
-    reprepro -b /out --component "$sec" includedeb skladenos "$d"
+    reprepro -b /out --component "$sec" includedeb garmon "$d"
   done
   gpg --export > /out/skladenos-archive-keyring.gpg
   reprepro -b /out export

@@ -1,0 +1,14 @@
+Source: skladenos-archive-keyring
+Section: misc
+Priority: optional
+Maintainer: Dmitrii Trifonov <53140442+DmitriiTrifonov@users.noreply.github.com>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+
+Package: skladenos-archive-keyring
+Architecture: all
+Depends: ${misc:Depends}
+Description: skladenOS: ключ подписи и источник apt-репозитория
+ Открытый ключ репозитория skladenOS (/usr/share/keyrings/skladenos-archive-keyring.gpg) и файл источника
+ /etc/apt/sources.list.d/skladenos.sources (по умолчанию выключен до публикации репозитория).

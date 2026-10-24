@@ -1,0 +1,13 @@
+Source: skladenos-containers
+Section: metapackages
+Priority: optional
+Maintainer: Dmitrii Trifonov <53140442+DmitriiTrifonov@users.noreply.github.com>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+
+Package: skladenos-containers
+Architecture: all
+Depends: ${misc:Depends}, podman, uidmap, netavark, passt, fuse-overlayfs
+Description: skladenOS: контейнеры (podman, rootless)
+ Ставит podman и rootless-окружение (uidmap, netavark, passt, fuse-overlayfs). Нужен, например, для Steam/FEX в контейнере.

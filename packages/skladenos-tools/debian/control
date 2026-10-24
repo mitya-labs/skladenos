@@ -1,0 +1,13 @@
+Source: skladenos-tools
+Section: metapackages
+Priority: optional
+Maintainer: Dmitrii Trifonov <53140442+DmitriiTrifonov@users.noreply.github.com>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+
+Package: skladenos-tools
+Architecture: all
+Depends: ${misc:Depends}, htop, fastfetch, git, v4l-utils, vulkan-tools
+Description: skladenOS: повседневные инструменты (htop, git, fastfetch…)
+ Ставит из Debian: htop, fastfetch, git, v4l-utils, vulkan-tools. Удаление метапакета оставляет эти программы (apt autoremove уберёт их, если больше не нужны).

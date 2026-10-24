@@ -1,0 +1,13 @@
+Source: skladenos-dev
+Section: metapackages
+Priority: optional
+Maintainer: Dmitrii Trifonov <53140442+DmitriiTrifonov@users.noreply.github.com>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+
+Package: skladenos-dev
+Architecture: all
+Depends: ${misc:Depends}, build-essential, meson, ninja-build, pkg-config, python3-venv, python3-pip
+Description: skladenOS: сборка программ на телефоне
+ Ставит компилятор и сборочные инструменты Debian (build-essential, meson, ninja-build, pkg-config, python3-venv, python3-pip).

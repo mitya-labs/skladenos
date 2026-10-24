@@ -1,0 +1,5 @@
+skladenos-containers (0.1.0) unstable; urgency=medium
+
+  * Метапакет: набор пакетов Debian, которые были на прежнем телефоне.
+
+ -- Dmitrii Trifonov <53140442+DmitriiTrifonov@users.noreply.github.com>  Sat, 24 Oct 2026 16:10:00 +0300

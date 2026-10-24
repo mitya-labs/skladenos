@@ -7,7 +7,7 @@
     "color": { "1": "38;2;255;229;92", "2": "38;2;184;155;51", "3": "38;2;224;194;71" },
     "padding": { "right": 2 }
   },
-  "display": { "separator": "  ", "color": { "keys": "38;2;255;229;92", "title": "38;2;255;229;92" } },
+  "display": { "separator": "  ", "key": { "width": 10 }, "color": { "keys": "38;2;255;229;92", "title": "38;2;255;229;92" } },
   "modules": [
     "title",
     "separator",
@@ -17,7 +17,7 @@
     "uptime",
     "packages",
     "shell",
-    "wm",
+    { "type": "custom", "key": "WM", "format": "sway (SXMO)" },
     "terminal",
     "cpu",
     "memory",

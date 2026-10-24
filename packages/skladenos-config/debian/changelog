@@ -1,3 +1,11 @@
+skladenos-config (0.1.1) unstable; urgency=medium
+
+  * fastfetch: общий конфиг /etc/xdg/fastfetch/config.jsonc, логотип skladenOS (/usr/share/skladenos/fastfetch/logo.txt), OS «skladenOS (Mobian · Debian)».
+  * Хук поворота ищет sxmo_qemu_resize.sh в PATH (пакеты эмуляторов).
+  * Recommends: fastfetch.
+
+ -- Dmitrii Trifonov <53140442+DmitriiTrifonov@users.noreply.github.com>  Sat, 24 Oct 2026 16:30:00 +0300
+
 skladenos-config (0.1.0) unstable; urgency=medium
 
   * Слой A: системные настройки (из mobian-postinstall, sxmo-default, slpi-install,

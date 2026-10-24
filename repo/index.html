@@ -1,10 +1,17 @@
 <!doctype html>
-<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>skladenOS: apt-репозиторий</title>
-<style>body{font:16px/1.5 system-ui,sans-serif;max-width:46rem;margin:2rem auto;padding:0 1rem}pre{background:#8881;padding:.8rem;overflow:auto}</style></head>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>skladenOS apt repository</title>
+<style>
+:root{color-scheme:light dark}
+body{font:16px/1.5 system-ui,sans-serif;max-width:46rem;margin:2rem auto;padding:0 1rem}
+pre{background:#8881;padding:.8rem;overflow:auto}
+.ru{margin-top:2.5rem;padding-top:1rem;border-top:1px solid #8884}
+</style></head>
 <body>
-<h1>skladenOS: apt-репозиторий (garmon)</h1>
-<p>Пакеты skladenOS для Poco F1 (Mobian + SXMO). Архитектура arm64.</p>
+
+<h1>skladenOS apt repository (garmon)</h1>
+<p>Packages for skladenOS on the Xiaomi Poco F1 (Mobian + SXMO). Architecture: arm64. Release name: <code>garmon</code>.</p>
+<p>Add the repository:</p>
 <pre>curl -fsS https://mitya-labs.github.io/apt/skladenos-archive-keyring.gpg | sudo tee /usr/share/keyrings/skladenos-archive-keyring.gpg &gt;/dev/null
 sudo tee /etc/apt/sources.list.d/skladenos.sources &gt;/dev/null &lt;&lt;'EOF'
 Types: deb
@@ -14,6 +21,14 @@ Components: main non-free
 Signed-By: /usr/share/keyrings/skladenos-archive-keyring.gpg
 EOF
 sudo apt update</pre>
-<p>Ключ подписи: <code>B27E 8856 988A 9019 BB9A 23F2 BBBD 1474 A352 F720</code>. Организация: <a href="https://github.com/mitya-labs">mitya-labs</a>.</p>
-<p>Компонент <code>non-free</code> — графика skladenOS под закрытой лицензией (логотип, фирменные обои).</p>
+<p>Signing key fingerprint: <code>B27E 8856 988A 9019 BB9A 23F2 BBBD 1474 A352 F720</code>.</p>
+<p>The <code>non-free</code> component holds skladenOS artwork (logo, branded wallpapers) under an all-rights-reserved license; everything else is in <code>main</code>.
+Organization: <a href="https://github.com/mitya-labs">mitya-labs</a>.</p>
+
+<div class="ru" lang="ru">
+<h2>apt-репозиторий skladenOS (garmon)</h2>
+<p>Пакеты skladenOS для Xiaomi Poco F1 (Mobian + SXMO), архитектура arm64, релиз <code>garmon</code>. Команды подключения те же, что выше.</p>
+<p>Отпечаток ключа подписи: <code>B27E 8856 988A 9019 BB9A 23F2 BBBD 1474 A352 F720</code>. Компонент <code>non-free</code> — графика skladenOS (логотип, фирменные обои) под закрытой лицензией; остальное в <code>main</code>.</p>
+</div>
+
 </body></html>

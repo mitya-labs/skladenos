@@ -1,0 +1,145 @@
+name: Release
+
+# По тегу vX.Y: собирает пакеты, ядро и образ (панель ebbg) и публикует GitHub Release.
+# Ручной запуск (Actions → Release → Run workflow) собирает то же самое артефактами и ничего не публикует.
+# Секретов нет; apt-репозиторий по-прежнему подписывается вручную (repo/build.sh). PumpkinOS в релиз не входит (лицензия Palm SDK).
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      image:
+        description: "Собирать образ (иначе только пакеты и ядро)"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  packages:
+    name: Пакет ${{ matrix.pkg }}
+    runs-on: ubuntu-24.04-arm
+    strategy:
+      fail-fast: false
+      matrix:
+        pkg: [skladenos-config, skladenos-wallpapers, skladenos-fonts, skladenos-artwork, skladenos-firstboot, skladenos-archive-keyring, skladenos-tools, skladenos-dev, skladenos-containers]
+    steps:
+      - uses: actions/checkout@v4
+      - run: packages/build.sh ${{ matrix.pkg }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deb-${{ matrix.pkg }}
+          path: out/packages/*.deb
+          retention-days: 14
+
+  emulators:
+    name: Эмулятор ${{ matrix.emu }}
+    runs-on: ubuntu-24.04-arm
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {emu: jornada720, script: build-jornada720.sh, pkg: skladenos-emu-jornada720}
+          - {emu: psion, script: build-windemu.sh, pkg: skladenos-emu-psion}
+    steps:
+      - uses: actions/checkout@v4
+      - run: packages/emulators/${{ matrix.script }}
+      - run: packages/build.sh ${{ matrix.pkg }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deb-${{ matrix.pkg }}
+          path: out/packages/*.deb
+          retention-days: 14
+
+  kernel:
+    name: Ядро
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - run: build/kernel/build.sh deb
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kernel-deb
+          path: out/kernel/*
+          retention-days: 14
+
+  image:
+    name: Образ (ebbg)
+    if: github.event_name == 'push' || inputs.image
+    needs: [packages, kernel]
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 120
+    env:
+      # официальный weekly Mobian; хеш закреплён, чтобы образ собирался из той же основы
+      MOBIAN_STAMP: mobian-sdm845-phosh-20260927
+      MOBIAN_SHA256: fdb81d6d67ec0371258e770f0558932d3ebd064602c2890bbd6a828d5a360200
+    steps:
+      - uses: actions/checkout@v4
+      - name: Место и инструменты
+        run: |
+          df -h /
+          sudo apt-get update -qq && sudo apt-get install -y -qq zstd >/dev/null
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: deb-*
+          path: out/packages
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: kernel-deb
+          path: out/kernel
+      - name: Скачать и проверить rootfs Mobian
+        run: |
+          mkdir -p images/mobian && cd images/mobian
+          curl -fL --retry 5 -o "$MOBIAN_STAMP.tar.xz" "https://images.mobian.org/qcom/weekly/$MOBIAN_STAMP.tar.xz"
+          echo "$MOBIAN_SHA256  $MOBIAN_STAMP.tar.xz" | sha256sum -c -
+          tar -xf "$MOBIAN_STAMP.tar.xz" "$MOBIAN_STAMP.rootfs.img" "$MOBIAN_STAMP.boot-beryllium-ebbg.img"
+          rm "$MOBIAN_STAMP.tar.xz"
+          ls -la; cd ../..
+          scripts/make-boot-rw ebbg
+      - name: Проверка предпосылок
+        run: build/image/build.sh check ci
+      - name: Сборка образа
+        run: build/image/build.sh build ci
+      - name: Итог и место
+        run: ls -la out/image/ci; cat out/image/ci/SHA256SUMS; df -h /
+      - uses: actions/upload-artifact@v4
+        with:
+          name: image-ebbg
+          path: |
+            out/image/ci/boot.img
+            out/image/ci/userdata.simg.zst
+            out/image/ci/SHA256SUMS
+            out/image/ci/FLASH.txt
+            out/image/ci/MANIFEST.txt
+          retention-days: 14
+          compression-level: 0
+
+  release:
+    name: Публикация релиза
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [packages, emulators, kernel, image]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dl
+      - name: Собрать файлы релиза
+        run: |
+          mkdir rel
+          cp dl/deb-*/*.deb rel/
+          cp dl/kernel-deb/linux-image-*.deb dl/kernel-deb/linux-headers-*.deb rel/
+          for f in boot.img userdata.simg.zst FLASH.txt MANIFEST.txt; do cp "dl/image-ebbg/$f" "rel/ebbg-$f"; done
+          cp dl/image-ebbg/SHA256SUMS rel/ebbg-image-SHA256SUMS
+          ( cd rel && sha256sum *.deb ebbg-boot.img ebbg-userdata.simg.zst > SHA256SUMS )
+          ls -la rel; cat rel/SHA256SUMS
+      - name: Создать релиз
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" rel/* --repo "$GITHUB_REPOSITORY" --title "skladenOS ${GITHUB_REF_NAME}" --generate-notes \
+            --notes "Образ для Poco F1 с панелью EBBG (ebbg-boot.img + ebbg-userdata.simg.zst), пакеты и ядро. Прошивка стирает телефон: см. ebbg-FLASH.txt. Пакеты также в подписанном apt-репозитории garmon."

@@ -86,7 +86,7 @@ E
   else bad "docker недоступен (демон не запущен?)"; fi
   command -v zstd >/dev/null && good "zstd на Маке" || bad "нет zstd (brew install zstd)"
   command -v shasum >/dev/null && good "shasum" || bad "нет shasum"
-  avail=$(df -g "$R" | awk 'NR==2{print $4}'); [ "${avail:-0}" -ge 20 ] && good "свободно на Маке ${avail} ГБ (нужно ~15: simg 9 ГБ + zst 3 ГБ)" || bad "на Маке свободно ${avail} ГБ (<20)"
+  avail=$(df -k "$R" | awk 'NR==2{print int($4/1048576)}'); [ "${avail:-0}" -ge 20 ] && good "свободно ${avail} ГБ (нужно ~15: simg 9 ГБ + zst 3 ГБ)" || bad "свободно ${avail} ГБ (<20)"
   echo "  метка: $LABEL, панель: $VARIANT, ssh: $SSH -> out/image/$LABEL/"
   [ "$ok" = 1 ] && echo "== предпосылки в порядке" || { echo "== ЕСТЬ ПРОБЛЕМЫ (см. НЕТ выше)" >&2; return 1; }
 }
@@ -109,7 +109,7 @@ f=open(sys.argv[1],"rb"); h=f.read(28); fh=struct.unpack("<IHHHHIIII",h)[3]; bs=
 f.seek(fh); t,_,sz,tsz=struct.unpack("<HHII",f.read(12)); print(uuid.UUID(bytes=f.read(sz*bs)[1024+0x68:1024+0x78]))
 E
 )
-  echo "[~25-40 мин, $(date +%H:%M) → ~$(date -v+40M +%H:%M)] Docker: simg2img, копия, chroot (apt), mke2fs -d, e2fsck, img2simg, boot.img. Лог: $LOG"
+  echo "[~25-40 мин, $(date +%H:%M) → ~$(date -d '+40 min' +%H:%M 2>/dev/null || date -v+40M +%H:%M)] Docker: simg2img, копия, chroot (apt), mke2fs -d, e2fsck, img2simg, boot.img. Лог: $LOG"
   docker run --rm --privileged --platform linux/arm64 \
     -v "$ROOTFS:/in/rootfs.img:ro" -v "$BOOT_SRC:/in/boot-src.img:ro" -v "$STAGE/debs:/in/debs:ro" \
     -v "$R/build/image:/in/scripts:ro" -v "$OUT:/out" \

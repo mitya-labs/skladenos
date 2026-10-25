@@ -125,6 +125,7 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           path: dl
@@ -141,5 +142,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${GITHUB_REF_NAME}" rel/* --repo "$GITHUB_REPOSITORY" --title "skladenOS ${GITHUB_REF_NAME}" --generate-notes \
-            --notes "Образ для Poco F1 с панелью EBBG (ebbg-boot.img + ebbg-userdata.simg.zst), пакеты и ядро. Прошивка стирает телефон: см. ebbg-FLASH.txt. Пакеты также в подписанном apt-репозитории garmon."
+          gh release create "${GITHUB_REF_NAME}" rel/* --repo "$GITHUB_REPOSITORY" --title "skladenOS ${GITHUB_REF_NAME}" --notes-file .github/release-notes.md

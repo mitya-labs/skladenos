@@ -1,0 +1,55 @@
+name: Kernel
+
+# check: клон тега Mobian и наложение наших патчей (минуты), на изменения патчей и скриптов ядра.
+# deb: полная сборка linux-image-7.2-sdm845 на arm64-раннере, только вручную (Actions → Kernel → Run workflow).
+on:
+  push:
+    branches: [main]
+    paths: ["patches/**", "build/kernel/**", ".github/workflows/kernel.yml"]
+  pull_request:
+    paths: ["patches/**", "build/kernel/**", ".github/workflows/kernel.yml"]
+  workflow_dispatch:
+    inputs:
+      build:
+        description: "Собрать .deb ядра целиком (десятки минут)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kernel-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Патчи ядра (check)
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - name: Свободное место
+        run: df -h / /mnt 2>/dev/null; nproc; free -g | head -2
+      - name: build/kernel/build.sh check
+        run: build/kernel/build.sh check
+
+  deb:
+    name: Сборка ядра (.deb)
+    if: github.event_name == 'workflow_dispatch' && inputs.build
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+      - name: Освободить место и показать, сколько его
+        run: |
+          df -h / /mnt 2>/dev/null
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL 2>/dev/null || true
+          docker system prune -af >/dev/null 2>&1 || true
+          df -h / /mnt 2>/dev/null
+      - name: Сборка ядра
+        run: build/kernel/build.sh deb
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kernel-deb
+          path: out/kernel/*
+          retention-days: 14

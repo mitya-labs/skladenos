@@ -32,6 +32,7 @@ good() { echo "  ok:  $*"; }
 # версия из deb без dpkg-deb (на Маке его нет): control.tar.{xz,zst,gz} внутри ar-архива
 deb_field() { # файл поле
   local m c
+  if command -v dpkg-deb >/dev/null; then dpkg-deb -f "$1" "$2"; return; fi
   for m in control.tar.xz control.tar.zst control.tar.gz; do
     c=$(ar p "$1" "$m" 2>/dev/null | tar -xOf - ./control 2>/dev/null) && [ -n "$c" ] && { printf '%s\n' "$c" | sed -n "s/^$2: //p" | head -1; return; }
   done

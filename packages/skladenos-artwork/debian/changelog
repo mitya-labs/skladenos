@@ -1,3 +1,9 @@
+skladenos-artwork (0.1.2) unstable; urgency=medium
+
+  * Пёс Mitya Labs перекрашен из жёлтого в бирюзовый #5BD0CF (как на фирменных обоях).
+
+ -- Dmitrii Trifonov <53140442+DmitriiTrifonov@users.noreply.github.com>  Sun, 25 Oct 2026 11:30:00 +0300
+
 skladenos-artwork (0.1.1) unstable; urgency=medium
 
   * Логотип и иконки в бирюзовой схеме сайта (#5EEADB, #2AA79B, #3FCFC0; светлая тема #1FB5AE, #0E7A75, #14968F), подпись одним цветом.
